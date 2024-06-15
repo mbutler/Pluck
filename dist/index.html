@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pluck Sound Example</title>
+</head>
+<body>
+  <h1>Pluck Sound Example</h1>
+  <button id="playButton">Play Sound</button>
+
+  <script src="pluck.js"></script>
+  <script>
+    document.getElementById('playButton').addEventListener('click', () => {
+      const sound = new Pluck.Sound({ file: 'snd.mp3' })
+      sound.play()
+    })
+  </script>
+</body>
+</html>
