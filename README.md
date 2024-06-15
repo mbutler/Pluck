@@ -33,24 +33,28 @@ Pluck.js is a modern, lightweight, and efficient JavaScript sound library design
    - The library is written in pure ES8+ JavaScript, with no dependencies on external libraries, ensuring it remains lightweight and fast.
 
 ## Project Structure
-pluck/
-├── dist/            # Compiled code
-├── docs/            # JSDocs documentation
-├── src/             # Source code
-│   ├── core/        # Core classes and utilities
-│   │   ├── Sound.js
-│   │   ├── Group.js
-│   │   ├── Effects.js
-│   │   └── Util.js
-│   └── index.js     # Entry point
-├── test/            # Tests
-│   ├── mocks/       # Mock classes for testing
-│   │   └── MockAudioContext.js
-│   ├── Sound.test.js
-│   ├── Group.test.js
-│   └── Effects.test.js
-├── index.html       # Sample HTML file for testing in the browser
-└── README.md        # Project documentation
+## Project Structure
+
+- pluck/
+  - dist/ (Compiled code)
+  - docs/ (JSDocs documentation)
+  - src/ (Source code)
+    - core/ (Core classes and utilities)
+      - Sound.js
+      - Group.js
+      - Effects.js
+      - Util.js
+    - index.js (Entry point)
+  - test/ (Tests)
+    - mocks/ (Mock classes for testing)
+      - MockAudioContext.js
+    - Sound.test.js
+    - Group.test.js
+    - Effects.test.js
+  - index.html (Sample HTML file for testing in the browser)
+  - README.md (Project documentation)
+
+
 
 ## Current Progress
 
