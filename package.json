@@ -3,7 +3,9 @@
   "module": "index.js",
   "type": "module",
   "scripts": {
-    "build": "bun build src/index.js --outdir dist --outfile pluck.js"
+    "build": "bun build --minify src/index.js --outfile ./dist/pluck.js",
+    "start": "bun build --minify src/index.js --watch --outfile ./dist/pluck.js",
+    "document": "documentation build src/** -f html -o docs"
   },
   "devDependencies": {
     "@types/bun": "latest"

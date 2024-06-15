@@ -8,6 +8,7 @@ class Sound {
     const properties = {
       context,
       source: null,
+      audioBuffer: null,
       volume: options.volume || 1,
       loop: options.loop || false,
       attack: options.attack || 0.04,
@@ -15,8 +16,9 @@ class Sound {
       gainNode,
     }
     soundProperties.set(this, properties)
-    this.initSource(options)
-    this.volume = properties.volume
+    this.initialized = this.initSource(options).then(() => {
+      this.volume = properties.volume
+    })
   }
 
   get context() {
@@ -92,12 +94,32 @@ class Sound {
 
   async loadFromFile(file) {
     const properties = soundProperties.get(this)
-    const response = await fetch(file)
-    const arrayBuffer = await response.arrayBuffer()
-    const audioBuffer = await properties.context.decodeAudioData(arrayBuffer)
+    try {
+      console.log('Fetching sound file:', file)
+      const response = await fetch(file)
+      const arrayBuffer = await response.arrayBuffer()
+      const audioBuffer = await properties.context.decodeAudioData(arrayBuffer)
+      properties.audioBuffer = audioBuffer
+      console.log('Sound file loaded:', file)
+    } catch (error) {
+      console.error('Error loading sound file:', error)
+    }
+  }
+
+  createSourceFromBuffer() {
+    const properties = soundProperties.get(this)
+    if (!properties.audioBuffer) {
+      console.error('No audio buffer to create source from')
+      return
+    }
     properties.source = properties.context.createBufferSource()
-    properties.source.buffer = audioBuffer
+    properties.source.buffer = properties.audioBuffer
     properties.source.loop = properties.loop
+    properties.source.onended = () => {
+      console.log('Sound playback ended')
+      properties.source = null
+    }
+    console.log('Created source from buffer:', properties.source)
     this.connectSourceToGainNode()
   }
 
@@ -106,6 +128,10 @@ class Sound {
     properties.source = properties.context.createOscillator()
     properties.source.type = waveOptions.type || 'sine'
     properties.source.frequency.value = waveOptions.frequency || 440
+    properties.source.onended = () => {
+      console.log('Sound playback ended')
+      properties.source = null
+    }
     this.connectSourceToGainNode()
   }
 
@@ -125,15 +151,35 @@ class Sound {
 
   connectSourceToGainNode() {
     const properties = soundProperties.get(this)
-    properties.source.connect(properties.gainNode)
-    properties.gainNode.connect(properties.context.destination)
+    if (properties.source) {
+      properties.source.connect(properties.gainNode)
+      properties.gainNode.connect(properties.context.destination)
+      console.log('Source connected to gain node')
+    } else {
+      console.error('No source to connect to gain node')
+    }
   }
 
-  play(when = 0, offset = 0) {
+  async play(when = 0, offset = 0) {
+    await this.initialized
     const properties = soundProperties.get(this)
-    if (!properties.source || !properties.source.start) return
-    this.applyAttack()
-    properties.source.start(properties.context.currentTime + when, offset)
+    if (properties.context.state === 'suspended') {
+      await properties.context.resume()
+    }
+    if (!properties.audioBuffer) {
+      console.error('No audio buffer available to play')
+      return
+    }
+    this.createSourceFromBuffer()
+    if (properties.source && properties.source.start) {
+      console.log('Applying attack')
+      this.applyAttack()
+      console.log('Starting source', properties.source)
+      properties.source.start(properties.context.currentTime + when, offset)
+      console.log('Playing sound')
+    } else {
+      console.error('No source to play')
+    }
   }
 
   pause() {
@@ -142,11 +188,15 @@ class Sound {
 
   stop() {
     const properties = soundProperties.get(this)
-    if (!properties.source || !properties.source.stop) return
-    this.applyRelease(() => {
-      properties.source.stop()
-    })
-    properties.source = null // Explicitly set source to null after stopping
+    if (properties.source && properties.source.stop) {
+      this.applyRelease(() => {
+        properties.source.stop()
+        properties.source = null // Explicitly set source to null after stopping
+        console.log('Stopping sound')
+      })
+    } else {
+      console.error('No source to stop')
+    }
   }
 
   clone() {
@@ -174,6 +224,7 @@ class Sound {
     const currentTime = properties.context.currentTime
     properties.gainNode.gain.setValueAtTime(0, currentTime)
     properties.gainNode.gain.linearRampToValueAtTime(properties.volume, currentTime + properties.attack)
+    console.log('Attack applied')
   }
 
   applyRelease(callback) {
@@ -183,6 +234,7 @@ class Sound {
     properties.gainNode.gain.setValueAtTime(properties.volume, currentTime)
     properties.gainNode.gain.linearRampToValueAtTime(0, currentTime + properties.release)
     setTimeout(callback, properties.release * 1000)
+    console.log('Release applied')
   }
 }
 
