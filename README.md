@@ -121,6 +121,7 @@ A sample `index.html` file demonstrates how to use Pluck.js to create and play a
     </script>
 </body>
 </html>
+```
 
 ## Future Work
 
