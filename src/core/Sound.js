@@ -14,6 +14,7 @@ class Sound {
       attack: options.attack || 0.04,
       release: options.release || 0.04,
       gainNode,
+      mediaStream: null // Track media stream for microphone input
     }
     soundProperties.set(this, properties)
     this.initialized = this.initSource(options).then(() => {
@@ -139,8 +140,10 @@ class Sound {
   async initFromInput() {
     const properties = soundProperties.get(this)
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    properties.mediaStream = stream
     properties.source = properties.context.createMediaStreamSource(stream)
     this.connectSourceToGainNode()
+    console.log('Microphone input initialized')
   }
 
   initFromFunction(audioFunction) {
@@ -168,8 +171,15 @@ class Sound {
       await properties.context.resume()
     }
     if (properties.source) {
-      properties.source.start(properties.context.currentTime + when, offset)
-      console.log('Playing sound')
+      if (properties.source instanceof MediaStreamAudioSourceNode) {
+        console.log('Playing media stream source')
+        // For MediaStreamAudioSourceNode, we don't need to call start
+      } else if (properties.source.start) {
+        properties.source.start(properties.context.currentTime + when, offset)
+        console.log('Playing sound')
+      } else {
+        console.error('Source has no start method')
+      }
     } else {
       if (properties.audioBuffer) {
         this.createSourceFromBuffer()
@@ -186,14 +196,20 @@ class Sound {
 
   stop() {
     const properties = soundProperties.get(this)
-    if (properties.source && properties.source.stop) {
-      this.applyRelease(() => {
+    if (properties.source) {
+      if (properties.source instanceof MediaStreamAudioSourceNode) {
+        // Handle stopping of media stream
+        const tracks = properties.mediaStream.getTracks()
+        tracks.forEach(track => track.stop())
+        properties.mediaStream = null
+        console.log('Microphone input stopped')
+      } else if (properties.source.stop) {
         properties.source.stop()
         properties.source = null // Explicitly set source to null after stopping
         console.log('Stopping sound')
-      })
-    } else {
-      console.error('No source to stop')
+      } else {
+        console.error('No source to stop')
+      }
     }
   }
 

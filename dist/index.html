@@ -17,48 +17,49 @@
   <button id="stopWave">Stop Wave</button>
 
   <script src="pluck.js"></script>
-  <script>
-      let sound // Declare sound variable globally
+<script>
+    let sound // Declare sound variable globally
 
-      document.getElementById('playButton').addEventListener('click', () => {
-          sound = new Pluck.Sound({ input: true })
-          sound.play()
-          console.log('Microphone input started')
-      })
+    document.getElementById('playButton').addEventListener('click', async () => {
+        sound = new Pluck.Sound({ input: true })
+        await sound.initialized
+        sound.play()
+        console.log('Microphone input started')
+    })
 
-      document.getElementById('stopButton').addEventListener('click', () => {
-          if (sound) {
-              sound.stop()
-              console.log('Microphone input stopped')
-          }
-      })
+    document.getElementById('stopButton').addEventListener('click', () => {
+        if (sound) {
+            sound.stop()
+            console.log('Microphone input stopped')
+        }
+    })
 
-      document.getElementById('playFile').addEventListener('click', () => {
-          sound = new Pluck.Sound({ file: 'snd.mp3' })
-          sound.play()
-          console.log('Sound file started')
-      })
+    document.getElementById('playFile').addEventListener('click', () => {
+        sound = new Pluck.Sound({ file: 'snd.mp3' })
+        sound.play()
+        console.log('Sound file started')
+    })
 
-      document.getElementById('stopFile').addEventListener('click', () => {
-          if (sound) {
-              sound.stop()
-              console.log('Sound file stopped')
-          }
-      })
+    document.getElementById('stopFile').addEventListener('click', () => {
+        if (sound) {
+            sound.stop()
+            console.log('Sound file stopped')
+        }
+    })
 
-      document.getElementById('playWave').addEventListener('click', () => {
-          sound = new Pluck.Sound({ wave: { type: 'sine', frequency: 440 } })
-          sound.play()
-          console.log('Wave started')
-      })
+    document.getElementById('playWave').addEventListener('click', () => {
+        sound = new Pluck.Sound({ wave: { type: 'sine', frequency: 440 } })
+        sound.play()
+        console.log('Wave started')
+    })
 
-      document.getElementById('stopWave').addEventListener('click', () => {
-          if (sound) {
-              sound.stop()
-              console.log('Wave stopped')
-          }
-      })
+    document.getElementById('stopWave').addEventListener('click', () => {
+        if (sound) {
+            sound.stop()
+            console.log('Wave stopped')
+        }
+    })
+</script>
 
-  </script>
 </body>
 </html>
