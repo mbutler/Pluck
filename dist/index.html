@@ -7,18 +7,21 @@
 </head>
 <body>
   <h1>Pluck Sound Example</h1>
-  <button id="playButton">Play Sound</button>
-  <button id="stopButton">Stop Sound</button>
+  <button id="playButton">Play Microphone Input</button>
+  <button id="stopButton">Stop Microphone Input</button>
 
   <button id="playFile">Play File</button>
+  <button id="stopFile">Stop File</button>
 
   <button id="playWave">Play Wave</button>
+  <button id="stopWave">Stop Wave</button>
 
   <script src="pluck.js"></script>
   <script>
-    document.getElementById('playButton').addEventListener('click', async () => {
+      let sound // Declare sound variable globally
+
+      document.getElementById('playButton').addEventListener('click', () => {
           sound = new Pluck.Sound({ input: true })
-          await sound.initialized
           sound.play()
           console.log('Microphone input started')
       })
@@ -31,15 +34,30 @@
       })
 
       document.getElementById('playFile').addEventListener('click', () => {
-        const sound = new Pluck.Sound({ file: 'snd.mp3' })
-        sound.play()
+          sound = new Pluck.Sound({ file: 'snd.mp3' })
+          sound.play()
+          console.log('Sound file started')
+      })
+
+      document.getElementById('stopFile').addEventListener('click', () => {
+          if (sound) {
+              sound.stop()
+              console.log('Sound file stopped')
+          }
       })
 
       document.getElementById('playWave').addEventListener('click', () => {
-        const sound = new Pluck.Sound({ wave: 'sine' })
-        sound.play()
+          sound = new Pluck.Sound({ wave: { type: 'sine', frequency: 440 } })
+          sound.play()
+          console.log('Wave started')
       })
 
+      document.getElementById('stopWave').addEventListener('click', () => {
+          if (sound) {
+              sound.stop()
+              console.log('Wave stopped')
+          }
+      })
 
   </script>
 </body>

@@ -98,13 +98,9 @@ class Sound {
       console.log('Fetching sound file:', file)
       const response = await fetch(file)
       const arrayBuffer = await response.arrayBuffer()
-      properties.context.decodeAudioData(arrayBuffer, (buffer) => {
-        properties.audioBuffer = buffer
-        console.log('Sound file loaded:', file)
-        this.createSourceFromBuffer()
-      }, (error) => {
-        console.error('Error decoding audio data:', error)
-      })
+      const audioBuffer = await properties.context.decodeAudioData(arrayBuffer)
+      properties.audioBuffer = audioBuffer
+      console.log('Sound file loaded:', file)
     } catch (error) {
       console.error('Error loading sound file:', error)
     }
@@ -113,7 +109,7 @@ class Sound {
   createSourceFromBuffer() {
     const properties = soundProperties.get(this)
     if (!properties.audioBuffer) {
-      console.error('No audio buffer available to create source from')
+      console.error('No audio buffer to create source from')
       return
     }
     properties.source = properties.context.createBufferSource()
@@ -136,6 +132,7 @@ class Sound {
       console.log('Sound playback ended')
       properties.source = null
     }
+    console.log('Created wave source:', properties.source)
     this.connectSourceToGainNode()
   }
 
@@ -170,18 +167,16 @@ class Sound {
     if (properties.context.state === 'suspended') {
       await properties.context.resume()
     }
-    if (!properties.source) {
-      console.error('No source available to play')
-      return
-    }
-    if (properties.source.start) {
-      console.log('Applying attack')
-      this.applyAttack()
-      console.log('Starting source', properties.source)
+    if (properties.source) {
       properties.source.start(properties.context.currentTime + when, offset)
       console.log('Playing sound')
     } else {
-      console.error('Source does not support start method')
+      if (properties.audioBuffer) {
+        this.createSourceFromBuffer()
+        this.play(when, offset)
+      } else {
+        console.error('No source or audio buffer available to play')
+      }
     }
   }
 
