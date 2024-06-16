@@ -8,13 +8,39 @@
 <body>
   <h1>Pluck Sound Example</h1>
   <button id="playButton">Play Sound</button>
+  <button id="stopButton">Stop Sound</button>
+
+  <button id="playFile">Play File</button>
+
+  <button id="playWave">Play Wave</button>
 
   <script src="pluck.js"></script>
   <script>
-    document.getElementById('playButton').addEventListener('click', () => {
-      const sound = new Pluck.Sound({ file: 'snd.mp3' })
-      sound.play()
-    })
+    document.getElementById('playButton').addEventListener('click', async () => {
+          sound = new Pluck.Sound({ input: true })
+          await sound.initialized
+          sound.play()
+          console.log('Microphone input started')
+      })
+
+      document.getElementById('stopButton').addEventListener('click', () => {
+          if (sound) {
+              sound.stop()
+              console.log('Microphone input stopped')
+          }
+      })
+
+      document.getElementById('playFile').addEventListener('click', () => {
+        const sound = new Pluck.Sound({ file: 'snd.mp3' })
+        sound.play()
+      })
+
+      document.getElementById('playWave').addEventListener('click', () => {
+        const sound = new Pluck.Sound({ wave: 'sine' })
+        sound.play()
+      })
+
+
   </script>
 </body>
 </html>

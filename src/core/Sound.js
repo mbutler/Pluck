@@ -98,9 +98,13 @@ class Sound {
       console.log('Fetching sound file:', file)
       const response = await fetch(file)
       const arrayBuffer = await response.arrayBuffer()
-      const audioBuffer = await properties.context.decodeAudioData(arrayBuffer)
-      properties.audioBuffer = audioBuffer
-      console.log('Sound file loaded:', file)
+      properties.context.decodeAudioData(arrayBuffer, (buffer) => {
+        properties.audioBuffer = buffer
+        console.log('Sound file loaded:', file)
+        this.createSourceFromBuffer()
+      }, (error) => {
+        console.error('Error decoding audio data:', error)
+      })
     } catch (error) {
       console.error('Error loading sound file:', error)
     }
@@ -109,7 +113,7 @@ class Sound {
   createSourceFromBuffer() {
     const properties = soundProperties.get(this)
     if (!properties.audioBuffer) {
-      console.error('No audio buffer to create source from')
+      console.error('No audio buffer available to create source from')
       return
     }
     properties.source = properties.context.createBufferSource()
@@ -166,19 +170,18 @@ class Sound {
     if (properties.context.state === 'suspended') {
       await properties.context.resume()
     }
-    if (!properties.audioBuffer) {
-      console.error('No audio buffer available to play')
+    if (!properties.source) {
+      console.error('No source available to play')
       return
     }
-    this.createSourceFromBuffer()
-    if (properties.source && properties.source.start) {
+    if (properties.source.start) {
       console.log('Applying attack')
       this.applyAttack()
       console.log('Starting source', properties.source)
       properties.source.start(properties.context.currentTime + when, offset)
       console.log('Playing sound')
     } else {
-      console.error('No source to play')
+      console.error('Source does not support start method')
     }
   }
 
