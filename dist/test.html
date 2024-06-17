@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pluck Multiple Sound Example</title>
+</head>
+<body>
+  <h1>Pluck Multiple Sound Example</h1>
+  <button id="playFile1">Play File 1</button>
+  <button id="playFile2">Play File 2</button>
+  <button id="stopFile1">Stop File 1</button>
+  <button id="stopFile2">Stop File 2</button>
+
+  <script src="pluck.js"></script>
+  <script>
+    let sound1, sound2;
+
+    document.getElementById('playFile1').addEventListener('click', () => {
+      sound1 = new Pluck.Sound({ file: 'sound1.mp3' });
+      sound1.play();
+      console.log('File 1 started');
+    });
+
+    document.getElementById('playFile2').addEventListener('click', () => {
+      sound2 = new Pluck.Sound({ file: 'sound2.mp3', clearBuffer: true});
+      sound2.play();
+      console.log('File 2 started');
+    });
+
+    document.getElementById('stopFile1').addEventListener('click', () => {
+      if (sound1) {
+        sound1.stop();
+        console.log('File 1 stopped');
+      }
+    });
+
+    document.getElementById('stopFile2').addEventListener('click', () => {
+      if (sound2) {
+        sound2.stop();
+        console.log('File 2 stopped');
+      }
+    });
+  </script>
+</body>
+</html>
