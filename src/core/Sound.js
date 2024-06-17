@@ -176,7 +176,7 @@ class Sound {
     }
   }
 
-  async play(when = 0, offset = 0) {
+  async play(offset = 0) {
     await this.initialized
     const properties = soundProperties.get(this)
     if (properties.context.state === 'suspended') {
@@ -195,7 +195,7 @@ class Sound {
       const startTime = offset
       properties.startTime = properties.context.currentTime - startTime
       console.log('Starting source', properties.source)
-      properties.source.start(properties.context.currentTime + when, startTime)
+      properties.source.start(properties.context.currentTime, startTime)
       properties.isPlaying = true
       console.log('Playing sound')
     } else {
