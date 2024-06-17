@@ -12,6 +12,7 @@ class Timeline {
 
   start() {
     this.context = new (window.AudioContext || window.webkitAudioContext)()
+    console.log('Audio context initialized', this.context)
     this.startTime = this.context.currentTime
     console.log('Timeline started', this.startTime)
     this.isPlaying = true

@@ -42,11 +42,11 @@ class Group {
     return groupProperties.get(this).sounds
   }
 
-  async play() {
+  async play(offset = 0) {
     const promises = this.sounds.map(async (sound) => {
       if (!sound.isPlaying) {
         try {
-          await sound.play()
+          await sound.play(offset)
           sound.isPlaying = true
         } catch (error) {
           console.error('Error playing sound:', error)
@@ -89,6 +89,11 @@ class Group {
     sound.disconnect(properties.gainNode)
     properties.sounds.splice(index, 1)
     console.log('Removed and disconnected sound from group gain node:', sound)
+
+    // Disconnect gain node if no sounds left
+    if (properties.sounds.length === 0) {
+      properties.gainNode.disconnect(properties.context.destination)
+    }
   }
 
   set volume(value) {
@@ -101,6 +106,35 @@ class Group {
 
   get volume() {
     return groupProperties.get(this).gainNode.gain.value
+  }
+
+  setVolumeGradually(value, duration = 1) {
+    if (value < 0 || value > 1) {
+      console.warn('Volume value must be between 0 and 1.')
+      return
+    }
+    const gainNode = groupProperties.get(this).gainNode
+    const currentTime = this.context.currentTime
+    gainNode.gain.setValueAtTime(gainNode.gain.value, currentTime)
+    gainNode.gain.linearRampToValueAtTime(value, currentTime + duration)
+    console.log(`Volume set to ${value} over ${duration} seconds`)
+  }
+
+  mute() {
+    if (!this.muted) {
+      this.previousVolume = this.volume
+      this.volume = 0
+      this.muted = true
+      console.log('Group muted')
+    }
+  }
+
+  unmute() {
+    if (this.muted) {
+      this.volume = this.previousVolume
+      this.muted = false
+      console.log('Group unmuted')
+    }
   }
 }
 
