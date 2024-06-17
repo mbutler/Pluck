@@ -19,6 +19,8 @@
 
     document.getElementById('playFile1').addEventListener('click', () => {
       sound1 = new Pluck.Sound({ file: 'sound1.mp3' })
+      // console log the audio context current time
+        console.log(sound1.context.currentTime)
       sound1.play()
       console.log('File 1 started')
     })
