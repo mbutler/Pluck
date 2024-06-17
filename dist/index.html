@@ -26,7 +26,7 @@
     document.getElementById('playButton').addEventListener('click', async () => {
       sound = new Pluck.Sound({ input: true });
       await sound.initialized;
-      sound.play();
+      //sound.play();
       console.log('Microphone input started');
     });
 
