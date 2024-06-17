@@ -15,12 +15,20 @@ class Sound {
       gainNode,
       isMicrophone: options.input || false,
       mediaStream: null,
-      clearBuffer: options.clearBuffer || false
+      clearBuffer: options.clearBuffer || false,
     }
     soundProperties.set(this, properties)
-    this.initialized = this.initSource(options).then(() => {
-      this.volume = properties.volume
-    })
+
+    this.initialized = this.initialize(options)
+  }
+
+  async initialize(options) {
+    try {
+      await this.initSource(options)
+      this.volume = soundProperties.get(this).volume
+    } catch (error) {
+      console.error('Error initializing source:', error)
+    }
   }
 
   get context() {
@@ -140,10 +148,14 @@ class Sound {
 
   async initFromInput() {
     const properties = soundProperties.get(this)
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    properties.mediaStream = stream
-    properties.source = properties.context.createMediaStreamSource(stream)
-    this.connectSourceToGainNode()
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      properties.mediaStream = stream
+      properties.source = properties.context.createMediaStreamSource(stream)
+      this.connectSourceToGainNode()
+    } catch (error) {
+      console.error('Error initializing microphone input:', error)
+    }
   }
 
   initFromFunction(audioFunction) {

@@ -17,32 +17,41 @@ class Timeline {
     this.loop()
   }
 
-  loop() {
+  async loop() {
     if (!this.isPlaying) return
 
     this.currentTime = this.context.currentTime - this.startTime
-    this.playScheduledSounds()
-    requestAnimationFrame(() => this.loop())
+
+    await this.playScheduledSounds()
+
     if (this.currentTime - this.lastTimestamp >= 1) {
-        this.lastTimestamp = this.currentTime;
-        this.runEverySecond();
-      }
+      this.lastTimestamp = this.currentTime
+      this.runEverySecond()
+    }
+
+    requestAnimationFrame(() => this.loop())
   }
 
   stop() {
     this.isPlaying = false
   }
 
-  scheduleSound(sound, time) {
-    this.sounds.push({ sound, time })
+  scheduleSound(sound, time, options = {}) {
+    this.sounds.push({ sound, time, options, played: false })
   }
 
   async playScheduledSounds() {
-    for (const { sound, time } of this.sounds) {
-      if (this.currentTime >= time && !sound.isPlaying) {
+    for (const scheduledSound of this.sounds) {
+      const { sound, time, played, options } = scheduledSound
+      if (this.currentTime >= time && (!played || options.loop)) {
         try {
-          await sound.play()
-          sound.isPlaying = true
+          if (!played || options.loop) {
+            await sound.play()
+            if (!options.loop) {
+              scheduledSound.played = true
+            }
+            console.log(`Played sound at ${time}`)
+          }
         } catch (error) {
           console.error('Error playing sound:', error)
         }
@@ -50,20 +59,15 @@ class Timeline {
     }
   }
 
-  addSound(file, startTime) {
-    const sound = new Sound({ file, context: this.context })
-    this.scheduleSound(sound, startTime)
-  }
-
-  async addSoundAsync(file, startTime) {
-    const sound = new Sound({ file, context: this.context })
+  async addSound(file, startTime, options = {}) {
+    const sound = new Sound({ file, context: this.context, ...options })
     await sound.initialized
-    this.scheduleSound(sound, startTime)
+    this.scheduleSound(sound, startTime, options)
   }
 
-    runEverySecond() {
-        console.log('Every second')
-    }
+  runEverySecond() {
+    console.log('Every second')
+  }
 }
 
 export default Timeline
