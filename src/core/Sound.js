@@ -1,8 +1,8 @@
-const audioContext = new (window.AudioContext || window.webkitAudioContext)()
 const soundProperties = new WeakMap()
 
 class Sound {
   constructor(options = {}) {
+    const audioContext = options.context || new (window.AudioContext || window.webkitAudioContext)()
     const gainNode = audioContext.createGain()
     const properties = {
       context: audioContext,
@@ -14,7 +14,8 @@ class Sound {
       release: options.release || 0.04,
       gainNode,
       isMicrophone: options.input || false,
-      mediaStream: null
+      mediaStream: null,
+      clearBuffer: options.clearBuffer || false
     }
     soundProperties.set(this, properties)
     this.initialized = this.initSource(options).then(() => {
@@ -119,6 +120,7 @@ class Sound {
     properties.source.onended = () => {
       console.log('Sound playback ended')
       properties.source = null
+      if (properties.clearBuffer) this.cleanupAudioBuffer()
     }
     console.log('Created source from buffer:', properties.source)
     this.connectSourceToGainNode()

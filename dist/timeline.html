@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Timeline Test</title>
+</head>
+<body>
+  <h1>Timeline Test</h1>
+  <button id="startTimeline">Start Timeline</button>
+  <script src="pluck.js"></script>
+  <script>
+    const timeline = new Pluck.Timeline();
+    document.getElementById('startTimeline').addEventListener('click', () => {
+      timeline.start();
+      timeline.addSound('snd.mp3', 5); // Schedule sound to play after 5 seconds
+      console.log('Timeline started and sound scheduled.');
+    });
+
+    // Ensure the loop runs and checks for scheduled sounds
+    function checkScheduledSounds() {
+      if (timeline.isPlaying) {
+        timeline.playScheduledSounds();
+        requestAnimationFrame(checkScheduledSounds);
+      }
+    }
+
+    requestAnimationFrame(checkScheduledSounds);
+  </script>
+</body>
+</html>
