@@ -16,50 +16,69 @@
   <button id="playWave">Play Wave</button>
   <button id="stopWave">Stop Wave</button>
 
+  <button id="playGroup">Play Group</button>
+  <button id="stopGroup">Stop Group</button>
+
   <script src="pluck.js"></script>
-<script>
-    let sound // Declare sound variable globally
+  <script>
+    let sound, group; // Declare sound and group variables globally
 
     document.getElementById('playButton').addEventListener('click', async () => {
-        sound = new Pluck.Sound({ input: true })
-        await sound.initialized
-        sound.play()
-        console.log('Microphone input started')
-    })
+      sound = new Pluck.Sound({ input: true });
+      await sound.initialized;
+      sound.play();
+      console.log('Microphone input started');
+    });
 
     document.getElementById('stopButton').addEventListener('click', () => {
-        if (sound) {
-            sound.stop()
-            console.log('Microphone input stopped')
-        }
-    })
+      if (sound) {
+        sound.stop();
+        console.log('Microphone input stopped');
+      }
+    });
 
-    document.getElementById('playFile').addEventListener('click', () => {
-        sound = new Pluck.Sound({ file: 'snd.mp3' })
-        sound.play()
-        console.log('Sound file started')
-    })
+    document.getElementById('playFile').addEventListener('click', async () => {
+      sound = new Pluck.Sound({ file: 'snd.mp3' });
+      await sound.initialized;
+      sound.play();
+      console.log('Sound file started');
+    });
 
     document.getElementById('stopFile').addEventListener('click', () => {
-        if (sound) {
-            sound.stop()
-            console.log('Sound file stopped')
-        }
-    })
+      if (sound) {
+        sound.stop();
+        console.log('Sound file stopped');
+      }
+    });
 
     document.getElementById('playWave').addEventListener('click', () => {
-        sound = new Pluck.Sound({ wave: { type: 'sine', frequency: 440 } })
-        sound.play()
-        console.log('Wave started')
-    })
+      sound = new Pluck.Sound({ wave: { type: 'sine', frequency: 440 } });
+      sound.play();
+      console.log('Wave started');
+    });
 
     document.getElementById('stopWave').addEventListener('click', () => {
-        if (sound) {
-            sound.stop()
-            console.log('Wave stopped')
-        }
-    })
-</script>
+      if (sound) {
+        sound.stop();
+        console.log('Wave stopped');
+      }
+    });
 
+    document.getElementById('playGroup').addEventListener('click', async () => {
+      const sound1 = new Pluck.Sound({ wave: { type: 'sine', frequency: 440 } });
+      const sound2 = new Pluck.Sound({ wave: { type: 'square', frequency: 880 } });
+      await Promise.all([sound1.initialized, sound2.initialized]);
+      group = new Pluck.Group([sound1, sound2]);
+      group.play();
+      console.log('Playing group sounds');
+    });
+
+    document.getElementById('stopGroup').addEventListener('click', () => {
+      if (group) {
+        group.stop();
+        console.log('Stopped group sounds');
+      }
+    });
+  </script>
 </body>
 </html>

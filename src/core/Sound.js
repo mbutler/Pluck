@@ -1,12 +1,11 @@
+const audioContext = new (window.AudioContext || window.webkitAudioContext)()
 const soundProperties = new WeakMap()
 
 class Sound {
   constructor(options = {}) {
-    const AudioContext = globalThis.AudioContext || globalThis.webkitAudioContext
-    const context = new AudioContext()
-    const gainNode = context.createGain()
+    const gainNode = audioContext.createGain()
     const properties = {
-      context,
+      context: audioContext,
       source: null,
       audioBuffer: null,
       volume: options.volume || 1,
@@ -14,7 +13,8 @@ class Sound {
       attack: options.attack || 0.04,
       release: options.release || 0.04,
       gainNode,
-      mediaStream: null // Track media stream for microphone input
+      isMicrophone: options.input || false,
+      mediaStream: null, // Store the MediaStream object for microphone input
     }
     soundProperties.set(this, properties)
     this.initialized = this.initSource(options).then(() => {
@@ -133,7 +133,6 @@ class Sound {
       console.log('Sound playback ended')
       properties.source = null
     }
-    console.log('Created wave source:', properties.source)
     this.connectSourceToGainNode()
   }
 
@@ -170,23 +169,21 @@ class Sound {
     if (properties.context.state === 'suspended') {
       await properties.context.resume()
     }
-    if (properties.source) {
-      if (properties.source instanceof MediaStreamAudioSourceNode) {
-        console.log('Playing media stream source')
-        // For MediaStreamAudioSourceNode, we don't need to call start
-      } else if (properties.source.start) {
-        properties.source.start(properties.context.currentTime + when, offset)
-        console.log('Playing sound')
-      } else {
-        console.error('Source has no start method')
-      }
+    if (!properties.audioBuffer && !properties.source) {
+      console.error('No audio buffer or source available to play')
+      return
+    }
+    if (properties.audioBuffer) {
+      this.createSourceFromBuffer()
+    }
+    if (properties.source && properties.source.start) {
+      console.log('Applying attack')
+      this.applyAttack()
+      console.log('Starting source', properties.source)
+      properties.source.start(properties.context.currentTime + when, offset)
+      console.log('Playing sound')
     } else {
-      if (properties.audioBuffer) {
-        this.createSourceFromBuffer()
-        this.play(when, offset)
-      } else {
-        console.error('No source or audio buffer available to play')
-      }
+      console.log('Playing microphone input')
     }
   }
 
@@ -197,19 +194,22 @@ class Sound {
   stop() {
     const properties = soundProperties.get(this)
     if (properties.source) {
-      if (properties.source instanceof MediaStreamAudioSourceNode) {
-        // Handle stopping of media stream
-        const tracks = properties.mediaStream.getTracks()
-        tracks.forEach(track => track.stop())
-        properties.mediaStream = null
+      if (properties.isMicrophone && properties.mediaStream) {
+        properties.mediaStream.getTracks().forEach(track => track.stop())
+        properties.source.disconnect(properties.gainNode)
+        properties.source = null
         console.log('Microphone input stopped')
       } else if (properties.source.stop) {
-        properties.source.stop()
-        properties.source = null // Explicitly set source to null after stopping
-        console.log('Stopping sound')
+        this.applyRelease(() => {
+          properties.source.stop()
+          properties.source = null // Explicitly set source to null after stopping
+          console.log('Stopping sound')
+        })
       } else {
         console.error('No source to stop')
       }
+    } else {
+      console.error('No source to stop')
     }
   }
 
@@ -224,7 +224,7 @@ class Sound {
       file: properties.source && properties.source.buffer ? properties.source.buffer : undefined,
       wave: properties.source && properties.source.frequency ? { type: properties.source.type, frequency: properties.source.frequency.value } : undefined,
       input: isMediaStreamSource,
-      audioFunction: properties.source.onaudioprocess
+      audioFunction: properties.source.onaudioprocess,
     })
   }
 
@@ -249,6 +249,16 @@ class Sound {
     properties.gainNode.gain.linearRampToValueAtTime(0, currentTime + properties.release)
     setTimeout(callback, properties.release * 1000)
     console.log('Release applied')
+  }
+
+  connect(node) {
+    const properties = soundProperties.get(this)
+    properties.gainNode.connect(node)
+  }
+
+  disconnect(node) {
+    const properties = soundProperties.get(this)
+    properties.gainNode.disconnect(node)
   }
 }
 

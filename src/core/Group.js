@@ -1,60 +1,95 @@
-import EventManager from '../events/EventManager'
-import Sound from './Sound'
+import Sound from './Sound.js';
 
-class Group extends EventManager {
+const groupProperties = new WeakMap();
+
+class Group {
   constructor(sounds = []) {
-    super()
-    this.sounds = []
-    this.effects = []
-    this.initGroup(sounds)
+    if (sounds.length === 0) {
+      throw new Error('Group requires at least one sound');
+    }
+
+    const context = sounds[0].context; // Use the context of the first sound
+    const gainNode = context.createGain();
+    const properties = {
+      context,
+      gainNode,
+      sounds,
+    };
+
+    groupProperties.set(this, properties);
+
+    sounds.forEach((sound) => {
+      if (sound instanceof Sound) {
+        sound.connect(gainNode);
+        console.log('Sound connected to group gain node:', sound);
+      } else {
+        console.error('Sound is not an instance of Sound class:', sound);
+      }
+    });
+
+    gainNode.connect(context.destination);
   }
 
-  initGroup(sounds) {
-    sounds.forEach(sound => this.addSound(sound))
+  get context() {
+    return groupProperties.get(this).context;
+  }
+
+  get gainNode() {
+    return groupProperties.get(this).gainNode;
+  }
+
+  get sounds() {
+    return groupProperties.get(this).sounds;
+  }
+
+  play() {
+    this.sounds.forEach((sound) => sound.play());
+  }
+
+  stop() {
+    this.sounds.forEach((sound) => sound.stop());
+  }
+
+  pause() {
+    this.sounds.forEach((sound) => sound.pause());
   }
 
   addSound(sound) {
     if (!(sound instanceof Sound)) {
-      console.error('You can only add instances of Sound')
-      return
+      console.error('The sound is not an instance of Sound class:', sound);
+      return;
     }
-    if (this.sounds.includes(sound)) {
-      console.warn('The Sound object is already added to this group')
-      return
-    }
-    this.sounds.push(sound)
+
+    const properties = groupProperties.get(this);
+    properties.sounds.push(sound);
+    sound.connect(properties.gainNode);
+    console.log('Added and connected new sound to group gain node:', sound);
   }
 
   removeSound(sound) {
-    const index = this.sounds.indexOf(sound)
+    const properties = groupProperties.get(this);
+    const index = properties.sounds.indexOf(sound);
     if (index === -1) {
-      console.warn('Cannot remove a sound that is not part of this group')
-      return
+      console.warn('The sound is not in the group');
+      return;
     }
-    this.sounds.splice(index, 1)
+
+    sound.disconnect(properties.gainNode);
+    properties.sounds.splice(index, 1);
+    console.log('Removed and disconnected sound from group gain node:', sound);
   }
 
-  play() {
-    this.sounds.forEach(sound => sound.play())
-    this.trigger('play')
+  set volume(value) {
+    if (value < 0 || value > 1) {
+      console.warn('Volume value must be between 0 and 1.');
+      return;
+    }
+    groupProperties.get(this).gainNode.gain.value = value;
   }
 
-  pause() {
-    this.sounds.forEach(sound => sound.pause())
-    this.trigger('pause')
+  get volume() {
+    return groupProperties.get(this).gainNode.gain.value;
   }
-
-  stop() {
-    this.sounds.forEach(sound => sound.stop())
-    this.trigger('stop')
-  }
-
-  setVolume(volume) {
-    if (volume < 0 || volume > 1) return
-    this.sounds.forEach(sound => sound.setVolume(volume))
-  }
-
-  // Additional methods as required
 }
 
-export default Group
+export default Group;
