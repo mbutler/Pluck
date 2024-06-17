@@ -39,11 +39,6 @@ class Sound {
   }
 
   set volume(value) {
-    const properties = soundProperties.get(this);
-    if (value < 0 || value > 1) {
-      console.warn('Volume value must be between 0 and 1.');
-      return;
-    }
     properties.volume = value;
     if (properties.gainNode) {
       properties.gainNode.gain.value = value;
