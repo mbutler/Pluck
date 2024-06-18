@@ -125,7 +125,7 @@ async function runTests() {
         return sound.gainNode instanceof GainNode;
       }`,
       expected: true,
-    }
+    },
   ];
   
 

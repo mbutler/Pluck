@@ -199,7 +199,7 @@ class Sound {
     this.isPlaying = false;
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());
-      this.source.disconnect(this.gainNode);
+      this.source.disconnect();
       this.source = null;
       console.log("Microphone input stopped");
       return;
@@ -207,6 +207,7 @@ class Sound {
     if (this.source && this.source.stop) {
       this.applyRelease(() => {
         this.source.stop();
+        this.source.disconnect();
         this.source = null;
         if (this.clearBuffer)
           this.audioBuffer = null;
@@ -232,17 +233,17 @@ class Sound {
   applyAttack() {
     if (!this.gainNode)
       return;
-    const currentTime = this.context.currentTime;
-    this.gainNode.gain.setValueAtTime(0, currentTime);
-    this.gainNode.gain.linearRampToValueAtTime(this.volume, currentTime + this.attack);
+    const currentTime2 = this.context.currentTime;
+    this.gainNode.gain.setValueAtTime(0, currentTime2);
+    this.gainNode.gain.linearRampToValueAtTime(this.volume, currentTime2 + this.attack);
     console.log("Attack applied");
   }
   applyRelease() {
     if (!this.gainNode)
       return;
-    const currentTime = this.context.currentTime;
-    this.gainNode.gain.setValueAtTime(this.volume, currentTime);
-    this.gainNode.gain.linearRampToValueAtTime(0, currentTime + this.release);
+    const currentTime2 = this.context.currentTime;
+    this.gainNode.gain.setValueAtTime(this.volume, currentTime2);
+    this.gainNode.gain.linearRampToValueAtTime(0, currentTime2 + this.release);
     console.log("Release applied");
   }
   connect(node) {
@@ -254,6 +255,75 @@ class Sound {
 }
 var Sound_default = Sound;
 
+// src/core/PriorityQueue.js
+class PriorityQueue {
+  constructor() {
+    this.queue = [];
+  }
+  enqueue(item, priority) {
+    const node = { item, priority };
+    this.queue.push(node);
+    this.bubbleUp();
+  }
+  dequeue() {
+    const first = this.queue[0];
+    const last = this.queue.pop();
+    if (this.queue.length > 0) {
+      this.queue[0] = last;
+      this.bubbleDown();
+    }
+    return first.item;
+  }
+  peek() {
+    return this.queue[0].item;
+  }
+  isEmpty() {
+    return this.queue.length === 0;
+  }
+  bubbleUp() {
+    let index = this.queue.length - 1;
+    const node = this.queue[index];
+    while (index > 0) {
+      const parentIndex = Math.floor((index - 1) / 2);
+      const parent = this.queue[parentIndex];
+      if (node.priority >= parent.priority)
+        break;
+      this.queue[index] = parent;
+      index = parentIndex;
+    }
+    this.queue[index] = node;
+  }
+  bubbleDown() {
+    let index = 0;
+    const length = this.queue.length;
+    const node = this.queue[index];
+    while (true) {
+      const leftChildIndex = 2 * index + 1;
+      const rightChildIndex = 2 * index + 2;
+      let leftChild, rightChild;
+      let swapIndex = null;
+      if (leftChildIndex < length) {
+        leftChild = this.queue[leftChildIndex];
+        if (leftChild.priority < node.priority) {
+          swapIndex = leftChildIndex;
+        }
+      }
+      if (rightChildIndex < length) {
+        rightChild = this.queue[rightChildIndex];
+        if (swapIndex === null && rightChild.priority < node.priority || swapIndex !== null && rightChild.priority < leftChild.priority) {
+          swapIndex = rightChildIndex;
+        }
+      }
+      if (swapIndex === null)
+        break;
+      this.queue[index] = this.queue[swapIndex];
+      index = swapIndex;
+    }
+    this.queue[index] = node;
+  }
+}
+var PriorityQueue_default = PriorityQueue;
+
 // src/core/Timeline.js
 class Timeline {
   constructor() {
@@ -262,7 +332,26 @@ class Timeline {
     this.startTime = null;
     this.currentTime = 0;
     this.lastTimestamp = 0;
-    this.isPlaying = false;
+    this.isPlaying = false, this.soundQueue = new PriorityQueue_default;
+    this.events = {
+      onStart: [],
+      onStop: [],
+      onLoop: [],
+      onSoundScheduled: [],
+      onSoundPlayed: []
+    };
+  }
+  on(event, listener) {
+    if (this.events[event]) {
+      this.events[event].push(listener);
+    } else {
+      console.error(`Event ${event} is not supported.`);
+    }
+  }
+  triggerEvent(event, ...args) {
+    if (this.events[event]) {
+      this.events[event].forEach((listener) => listener(...args));
+    }
   }
   start() {
     this.context = new (window.AudioContext || window.webkitAudioContext);
@@ -270,24 +359,43 @@ class Timeline {
     this.startTime = this.context.currentTime;
     console.log("Timeline started", this.startTime);
     this.isPlaying = true;
+    this.triggerEvent("onStart");
     this.loop();
   }
   async loop() {
     if (!this.isPlaying)
       return;
     this.currentTime = this.context.currentTime - this.startTime;
-    await this.playScheduledSounds();
+    while (!this.soundQueue.isEmpty() && this.soundQueue.peek().time <= currentTime) {
+      const { sound, offset, options } = this.soundQueue.dequeue().item;
+      try {
+        await sound.play(offset);
+        this.triggerEvent("onSoundPlayed", sound, currentTime, offset);
+        if (options.loop) {
+          this.scheduleSound(sound, currentTime + sound.audioBuffer.duration, offset, options);
+        }
+      } catch (error) {
+        console.error("Error playing sound:", error);
+      }
+    }
     if (this.currentTime - this.lastTimestamp >= 1) {
       this.lastTimestamp = this.currentTime;
       this.runEverySecond();
+      this.triggerEvent("onLoop");
     }
     requestAnimationFrame(() => this.loop());
   }
   stop() {
     this.isPlaying = false;
+    this.triggerEvent("onStop");
   }
   scheduleSound(sound, time, offset = 0, options = {}) {
-    this.sounds.push({ sound, time, offset, options, played: false });
+    this.soundQueue.enqueue({ sound, time, offset, options }, time);
+    this.triggerEvent("onSoundScheduled", sound, time, offset, options);
+  }
+  rescheduleSound(sound, newTime, offset = 0, options = {}) {
+    this.soundQueue.remove(sound);
+    this.scheduleSound(sound, newTime, offset, options);
   }
   async playScheduledSounds() {
     for (const scheduledSound of this.sounds) {
@@ -298,12 +406,19 @@ class Timeline {
           if (!options.loop) {
             scheduledSound.played = true;
           }
+          this.triggerEvent("onSoundPlayed", sound, time, offset);
           console.log(`Played sound at ${time} with offset=${offset}`);
         } catch (error) {
           console.error("Error playing sound:", error);
         }
       }
     }
+  }
+  playNow(sound) {
+    this.soundQueue.enqueue({ sound, time: this.context.currentTime, offset: 0, options: {} }, 0);
+  }
+  scheduleEffect(effect, time) {
+    this.soundQueue.enqueue({ effect, time }, time);
   }
   async addSound(file, offset = 0, startTime, options = {}) {
     const sound = new Sound_default({ file, context: this.context, ...options });
@@ -428,9 +543,9 @@ class Group {
       return;
     }
     const gainNode = groupProperties.get(this).gainNode;
-    const currentTime = this.context.currentTime;
-    gainNode.gain.setValueAtTime(gainNode.gain.value, currentTime);
-    gainNode.gain.linearRampToValueAtTime(value, currentTime + duration);
+    const currentTime2 = this.context.currentTime;
+    gainNode.gain.setValueAtTime(gainNode.gain.value, currentTime2);
+    gainNode.gain.linearRampToValueAtTime(value, currentTime2 + duration);
     console.log(`Volume set to ${value} over ${duration} seconds`);
   }
   mute() {

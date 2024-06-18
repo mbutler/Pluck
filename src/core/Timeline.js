@@ -1,4 +1,5 @@
 import Sound from './Sound.js'
+import PriorityQueue from './PriorityQueue.js'
 
 class Timeline {
   constructor() {
@@ -8,6 +9,7 @@ class Timeline {
     this.currentTime = 0
     this.lastTimestamp = 0
     this.isPlaying = false,
+    this.soundQueue = new PriorityQueue()
     this.events = {
       onStart: [],
       onStop: [],
@@ -46,7 +48,18 @@ class Timeline {
 
     this.currentTime = this.context.currentTime - this.startTime
 
-    await this.playScheduledSounds()
+    while (!this.soundQueue.isEmpty() && this.soundQueue.peek().time <= currentTime) {
+      const { sound, offset, options } = this.soundQueue.dequeue().item
+      try {
+        await sound.play(offset)
+        this.triggerEvent('onSoundPlayed', sound, currentTime, offset)
+        if (options.loop) {
+          this.scheduleSound(sound, currentTime + sound.audioBuffer.duration, offset, options)
+        }
+      } catch (error) {
+        console.error("Error playing sound:", error)
+      }
+    }
 
     if (this.currentTime - this.lastTimestamp >= 1) {
       this.lastTimestamp = this.currentTime
@@ -63,11 +76,15 @@ class Timeline {
   }
 
   scheduleSound(sound, time, offset = 0, options = {}) {
-    this.sounds.push({ sound, time, offset, options, played: false })
-    this.sounds.sort((a, b) => a.time - b.time)
+    this.soundQueue.enqueue({ sound, time, offset, options }, time)
     this.triggerEvent('onSoundScheduled', sound, time, offset, options)
   }
 
+  rescheduleSound(sound, newTime, offset = 0, options = {}) {
+    this.soundQueue.remove(sound)
+    this.scheduleSound(sound, newTime, offset, options)
+  }
+  
   async playScheduledSounds() {
     for (const scheduledSound of this.sounds) {
       const { sound, time, offset, played, options } = scheduledSound
@@ -84,6 +101,14 @@ class Timeline {
         }
       }
     }
+  }
+
+  playNow(sound) {
+    this.soundQueue.enqueue({ sound, time: this.context.currentTime, offset: 0, options: {} }, 0)
+  }
+  
+  scheduleEffect(effect, time) {
+    this.soundQueue.enqueue({ effect, time }, time)
   }
 
   async addSound(file, offset = 0, startTime, options = {}) {
