@@ -230,7 +230,7 @@ class Sound {
     this.isPlaying = false
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach(track => track.stop())
-      this.source.disconnect(this.gainNode)
+      this.source.disconnect()
       this.source = null
       console.log('Microphone input stopped')
       return
@@ -238,6 +238,7 @@ class Sound {
     if (this.source && this.source.stop) {
       this.applyRelease(() => {
         this.source.stop()
+        this.source.disconnect()
         this.source = null
         if (this.clearBuffer) this.audioBuffer = null
         console.log('Stopping sound')

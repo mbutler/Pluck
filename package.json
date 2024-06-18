@@ -10,8 +10,8 @@
     "typescript": "^5.0.0"
   },
   "scripts": {
-    "build": "bun build --minify src/index.js --outfile ./dist/pluck.js",
-    "start": "bun build --minify src/index.js --watch --outfile ./dist/pluck.js",
+    "build": "bun build --minify src/index.js --outfile ./dist/pluck.min.js",
+    "start": "bun build --minify src/index.js --watch --outfile ./dist/pluck.min.js",
     "document": "documentation build src/** -f html -o docs"
   },
   "type": "module"

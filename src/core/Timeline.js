@@ -7,7 +7,28 @@ class Timeline {
     this.startTime = null
     this.currentTime = 0
     this.lastTimestamp = 0
-    this.isPlaying = false
+    this.isPlaying = false,
+    this.events = {
+      onStart: [],
+      onStop: [],
+      onLoop: [],
+      onSoundScheduled: [],
+      onSoundPlayed: []
+    }
+  }
+
+  on(event, listener) {
+    if (this.events[event]) {
+      this.events[event].push(listener)
+    } else {
+      console.error(`Event ${event} is not supported.`)
+    }
+  }
+
+  triggerEvent(event, ...args) {
+    if (this.events[event]) {
+      this.events[event].forEach(listener => listener(...args))
+    }
   }
 
   start() {
@@ -16,6 +37,7 @@ class Timeline {
     this.startTime = this.context.currentTime
     console.log('Timeline started', this.startTime)
     this.isPlaying = true
+    this.triggerEvent('onStart')
     this.loop()
   }
 
@@ -29,6 +51,7 @@ class Timeline {
     if (this.currentTime - this.lastTimestamp >= 1) {
       this.lastTimestamp = this.currentTime
       this.runEverySecond()
+      this.triggerEvent('onLoop')
     }
 
     requestAnimationFrame(() => this.loop())
@@ -36,10 +59,13 @@ class Timeline {
 
   stop() {
     this.isPlaying = false
+    this.triggerEvent('onStop')
   }
 
   scheduleSound(sound, time, offset = 0, options = {}) {
     this.sounds.push({ sound, time, offset, options, played: false })
+    this.sounds.sort((a, b) => a.time - b.time)
+    this.triggerEvent('onSoundScheduled', sound, time, offset, options)
   }
 
   async playScheduledSounds() {
@@ -51,6 +77,7 @@ class Timeline {
           if (!options.loop) {
             scheduledSound.played = true
           }
+          this.triggerEvent('onSoundPlayed', sound, time, offset)
           console.log(`Played sound at ${time} with offset=${offset}`)
         } catch (error) {
           console.error('Error playing sound:', error)
