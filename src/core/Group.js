@@ -42,11 +42,12 @@ class Group {
     return groupProperties.get(this).sounds
   }
 
-  async play(offset = 0) {
-    const promises = this.sounds.map(async (sound) => {
+  async play() {
+    const properties = groupProperties.get(this)
+    const promises = properties.sounds.map(async (sound) => {
       if (!sound.isPlaying) {
         try {
-          await sound.play(offset)
+          await sound.play()
           sound.isPlaying = true
         } catch (error) {
           console.error('Error playing sound:', error)
@@ -57,7 +58,8 @@ class Group {
   }
 
   async stop() {
-    const promises = this.sounds.map(async (sound) => {
+    const properties = groupProperties.get(this)
+    const promises = properties.sounds.map(async (sound) => {
       if (sound.isPlaying) {
         sound.stop()
         sound.isPlaying = false
@@ -73,6 +75,10 @@ class Group {
     }
 
     const properties = groupProperties.get(this)
+    if (sound.context !== properties.context) {
+      console.error('Cannot add sound to group: mismatched audio contexts')
+      return
+    }
     properties.sounds.push(sound)
     sound.connect(properties.gainNode)
     console.log('Added and connected new sound to group gain node:', sound)
@@ -121,18 +127,20 @@ class Group {
   }
 
   mute() {
-    if (!this.muted) {
-      this.previousVolume = this.volume
+    const properties = groupProperties.get(this)
+    if (!properties.muted) {
+      properties.previousVolume = this.volume
       this.volume = 0
-      this.muted = true
+      properties.muted = true
       console.log('Group muted')
     }
   }
 
   unmute() {
-    if (this.muted) {
-      this.volume = this.previousVolume
-      this.muted = false
+    const properties = groupProperties.get(this)
+    if (properties.muted) {
+      this.volume = properties.previousVolume
+      properties.muted = false
       console.log('Group unmuted')
     }
   }

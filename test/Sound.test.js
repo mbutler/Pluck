@@ -45,6 +45,16 @@ async function runTests() {
       }`,
       expected: true,
     },
+    {
+      name: 'Test Sound Playback with Offset',
+      script: `async () => {
+        const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3' });
+        await sound.initialized;
+        await sound.play(2); // Play with a 2-second offset
+        return sound.isPlaying;
+      }`,
+      expected: true,
+    },
   ];
 
   // Inject test cases into the page and run them
@@ -52,7 +62,8 @@ async function runTests() {
     const results = [];
     for (const { name, script, expected } of testCases) {
       try {
-        const result = await (new Function('return ' + script)())();
+        const fn = new Function('return ' + script)();
+        const result = await fn();
         results.push({ name, result, expected, passed: result === expected });
       } catch (error) {
         results.push({ name, error: error.message, passed: false });

@@ -7,8 +7,10 @@
 </head>
 <body>
   <h1>Pluck Sound Example</h1>
-  <button id="playButton">Play Microphone Input</button>
-  <button id="stopButton">Stop Microphone Input</button>
+  <button id="startTimeline">Start Timeline</button>
+
+  <button id="playMicrophone">Play Microphone Input</button>
+  <button id="stopMicrophone">Stop Microphone Input</button>
 
   <button id="playFile">Play File</button>
   <button id="stopFile">Stop File</button>
@@ -21,55 +23,79 @@
 
   <script src="pluck.js"></script>
   <script>
-    let sound, group; // Declare sound and group variables globally
+    let timeline, group;
+    let microphoneSound, fileSound, waveSound;
 
-    document.getElementById('playButton').addEventListener('click', async () => {
-      sound = new Pluck.Sound({ input: true });
-      await sound.initialized;
-      //sound.play();
+    document.getElementById('startTimeline').addEventListener('click', () => {
+      timeline = new Pluck.Timeline();
+      timeline.start();
+      console.log('Timeline started');
+    });
+
+    document.getElementById('playMicrophone').addEventListener('click', async () => {
+      if (!timeline || !timeline.context) {
+        console.error('Timeline is not started. Please start the timeline first.');
+        return;
+      }
+      microphoneSound = new Pluck.Sound({ input: true, context: timeline.context });
+      await microphoneSound.initialized;
+      await microphoneSound.play();
       console.log('Microphone input started');
     });
 
-    document.getElementById('stopButton').addEventListener('click', () => {
-      if (sound) {
-        sound.stop();
+    document.getElementById('stopMicrophone').addEventListener('click', () => {
+      if (microphoneSound) {
+        microphoneSound.stop();
         console.log('Microphone input stopped');
       }
     });
 
     document.getElementById('playFile').addEventListener('click', async () => {
-      sound = new Pluck.Sound({ file: 'snd.mp3' });
-      await sound.initialized;
-      sound.play();
+      if (!timeline || !timeline.context) {
+        console.error('Timeline is not started. Please start the timeline first.');
+        return;
+      }
+      fileSound = new Pluck.Sound({ file: 'snd.mp3', context: timeline.context });
+      await fileSound.initialized;
+      await fileSound.play();
       console.log('Sound file started');
     });
 
     document.getElementById('stopFile').addEventListener('click', () => {
-      if (sound) {
-        sound.stop();
+      if (fileSound) {
+        fileSound.stop();
         console.log('Sound file stopped');
       }
     });
 
-    document.getElementById('playWave').addEventListener('click', () => {
-      sound = new Pluck.Sound({ wave: { type: 'sine', frequency: 440 } });
-      sound.play();
+    document.getElementById('playWave').addEventListener('click', async () => {
+      if (!timeline || !timeline.context) {
+        console.error('Timeline is not started. Please start the timeline first.');
+        return;
+      }
+      waveSound = new Pluck.Sound({ wave: { type: 'sine', frequency: 440 }, context: timeline.context });
+      await waveSound.initialized;
+      await waveSound.play();
       console.log('Wave started');
     });
 
     document.getElementById('stopWave').addEventListener('click', () => {
-      if (sound) {
-        sound.stop();
+      if (waveSound) {
+        waveSound.stop();
         console.log('Wave stopped');
       }
     });
 
     document.getElementById('playGroup').addEventListener('click', async () => {
-      const sound1 = new Pluck.Sound({ wave: { type: 'sine', frequency: 440 } });
-      const sound2 = new Pluck.Sound({ wave: { type: 'square', frequency: 880 } });
+      if (!timeline || !timeline.context) {
+        console.error('Timeline is not started. Please start the timeline first.');
+        return;
+      }
+      const sound1 = new Pluck.Sound({ wave: { type: 'sine', frequency: 440 }, context: timeline.context });
+      const sound2 = new Pluck.Sound({ wave: { type: 'square', frequency: 880 }, context: timeline.context });
       await Promise.all([sound1.initialized, sound2.initialized]);
       group = new Pluck.Group([sound1, sound2]);
-      group.play();
+      await group.play();
       console.log('Playing group sounds');
     });
 
