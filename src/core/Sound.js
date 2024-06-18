@@ -140,7 +140,7 @@ class Sound {
       console.log('Fetching sound file:', file)
       const response = await fetch(file)
       const arrayBuffer = await response.arrayBuffer()
-      this.audioBuffer =  await this.context.decodeAudioData(arrayBuffer)
+      this.audioBuffer = await this.context.decodeAudioData(arrayBuffer)
       console.log('Sound file loaded:', file)
     } catch (error) {
       console.error('Error loading sound file:', error)
@@ -159,7 +159,7 @@ class Sound {
       console.log('Sound playback ended')
       this.isPlaying = false
       this.source = null
-      if (this.clearBuffer) this.cleanupAudioBuffer()
+      if (this.clearBuffer) this.audioBuffer = null
     }
     console.log('Created source from buffer:', this.source)
     this.connectSourceToGainNode()
@@ -214,14 +214,12 @@ class Sound {
     }
   
     if (this.source && this.source.start) {
-      console.log('Applying attack')
       this.applyAttack()
       console.log('Starting source', this.source)
       this.source.start(this.context.currentTime, offset)
       console.log('Playing sound')
     }
   }
-  
 
   stop() {
     this.isPlaying = false
@@ -236,7 +234,7 @@ class Sound {
       this.applyRelease(() => {
         this.source.stop()
         this.source = null
-        if (this.clearBuffer) this.cleanupAudioBuffer()
+        if (this.clearBuffer) this.audioBuffer = null
         console.log('Stopping sound')
       })
     }
@@ -257,11 +255,6 @@ class Sound {
       wave: this.source && this.source.frequency ? { type: this.source.type, frequency: this.source.frequency.value } : undefined,
     })
   }
-  
-
-  setVolume(volume) {
-    this.volume = volume
-  }
 
   applyAttack() {
     if (!this.gainNode) return
@@ -277,19 +270,6 @@ class Sound {
     this.gainNode.gain.setValueAtTime(this.volume, currentTime)
     this.gainNode.gain.linearRampToValueAtTime(0, currentTime + this.release)
     console.log('Release applied')
-  }
-
-  cleanupAudioBuffer() {
-    this.audioBuffer = null
-    console.log('Audio buffer cleared')
-  }
-
-  connect(node) {
-    this.gainNode.connect(node)
-  }
-
-  disconnect(node) {
-    this.gainNode.disconnect(node)
   }
 }
 
