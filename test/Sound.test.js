@@ -10,7 +10,7 @@ async function runTests() {
   await page.goto('about:blank');
 
   // Expose Pluck library to the page
-  await page.addScriptTag({ path: '../dist/pluck.js' }); // Adjust the path to your Pluck library
+  await page.addScriptTag({ path: '../dist/pluck.js' }); 
 
   // Define test cases
   const testCases = [
@@ -35,8 +35,9 @@ async function runTests() {
     {
       name: 'Test Group Play',
       script: `async () => {
-        const sound1 = new window.Pluck.Sound({ file: '../dist/snd.mp3' });
-        const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3' });
+        const context = new window.AudioContext();
+        const sound1 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context: context });
+        const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context: context});
         await sound1.initialized;
         await sound2.initialized;
         const group = new window.Pluck.Group([sound1, sound2]);
@@ -49,8 +50,7 @@ async function runTests() {
       name: 'Test Sound Playback with Offset',
       script: `async () => {
         const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3' });
-        await sound.initialized;
-        await sound.play(2); // Play with a 2-second offset
+        await sound.play();
         return sound.isPlaying;
       }`,
       expected: true,

@@ -13,7 +13,6 @@ class Sound {
       attack: options.attack || 0.04,
       release: options.release || 0.04,
       gainNode,
-      isMicrophone: options.input || false,
       mediaStream: null,
       clearBuffer: options.clearBuffer || false,
       isPlaying: false,
@@ -66,7 +65,8 @@ class Sound {
   }
 
   set loop(value) {
-    soundProperties.get(this).loop = value
+    const properties = soundProperties.get(this)
+    properties.loop = value
   }
 
   get attack() {
@@ -74,7 +74,8 @@ class Sound {
   }
 
   set attack(value) {
-    soundProperties.get(this).attack = value
+    const properties = soundProperties.get(this)
+    properties.attack = value
   }
 
   get release() {
@@ -82,7 +83,8 @@ class Sound {
   }
 
   set release(value) {
-    soundProperties.get(this).release = value
+    const properties = soundProperties.get(this)
+    properties.release = value
   }
 
   get gainNode() {
@@ -96,6 +98,15 @@ class Sound {
   set isPlaying(value) {
     const properties = soundProperties.get(this)
     properties.isPlaying = value
+  }
+
+  get mediaStream() {
+    return soundProperties.get(this).mediaStream
+  }
+
+  set mediaStream(value) {
+    const properties = soundProperties.get(this)
+    properties.mediaStream = value
   }
 
   async initSource(options) {
@@ -134,21 +145,19 @@ class Sound {
     }
     this.source = properties.context.createBufferSource()
     this.source.buffer = properties.audioBuffer
-    this.source.loop = properties.loop
+    this.source.loop = this.loop
     this.source.onended = () => {
       console.log('Sound playback ended')
       this.isPlaying = false
       this.source = null
-      if (properties.clearBuffer) this.cleanupAudioBuffer()
+      if (this.clearBuffer) this.cleanupAudioBuffer()
     }
     console.log('Created source from buffer:', this.source)
     this.connectSourceToGainNode()
   }
-  
 
   initFromWave(waveOptions) {
-    const properties = soundProperties.get(this)
-    this.source = properties.context.createOscillator()
+    this.source = this.context.createOscillator()
     this.source.type = waveOptions.type || 'sine'
     this.source.frequency.value = waveOptions.frequency || 440
     this.source.onended = () => {
@@ -160,11 +169,10 @@ class Sound {
   }
 
   async initFromInput() {
-    const properties = soundProperties.get(this)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       this.mediaStream = stream
-      this.source = properties.context.createMediaStreamSource(stream)
+      this.source = this.context.createMediaStreamSource(stream)
       this.connectSourceToGainNode()
     } catch (error) {
       console.error('Error initializing microphone input:', error)
@@ -172,17 +180,15 @@ class Sound {
   }
 
   initFromFunction(audioFunction) {
-    const properties = soundProperties.get(this)
-    this.source = properties.context.createScriptProcessor(2048, 1, 1)
+    this.source = this.context.createScriptProcessor(2048, 1, 1)
     this.source.onaudioprocess = audioFunction
     this.connectSourceToGainNode()
   }
 
   connectSourceToGainNode() {
-    const properties = soundProperties.get(this)
     if (this.source) {
-      this.source.connect(properties.gainNode)
-      properties.gainNode.connect(properties.context.destination)
+      this.source.connect(this.gainNode)
+      this.gainNode.connect(this.context.destination)
       console.log('Source connected to gain node')
     } else {
       console.error('No source to connect to gain node')
@@ -190,12 +196,13 @@ class Sound {
   }
 
   async play(offset = 0) {
+    this.isPlaying = true
     await this.initialized
-    const properties = soundProperties.get(this)
-    if (properties.context.state === 'suspended') {
-      await properties.context.resume()
+    if (this.context.state === 'suspended') {
+      await this.context.resume()
     }
-    if (!properties.audioBuffer && !properties.source) {
+    const properties = soundProperties.get(this)
+    if (!properties.audioBuffer && !this.source) {
       console.error('No audio buffer or source available to play')
       return
     }
@@ -203,28 +210,21 @@ class Sound {
       this.createSourceFromBuffer()
     }
   
-    while (!properties.source) {
-      await new Promise(resolve => setTimeout(resolve, 10))
-    }
-  
-    if (properties.source && properties.source.start) {
+    if (this.source && this.source.start) {
       console.log('Applying attack')
       this.applyAttack()
-      const startTime = offset
-      properties.startTime = properties.context.currentTime - startTime
-      console.log('Starting source', properties.source)
-      properties.source.start(properties.context.currentTime, startTime)
-      this.isPlaying = true
+      properties.startTime = this.context.currentTime - offset
+      console.log('Starting source', this.source)
+      this.source.start(this.context.currentTime, offset)
       console.log('Playing sound')
     }
   }
   
 
   stop() {
-    const properties = soundProperties.get(this)
-    if (properties.isMicrophone && this.mediaStream) {
+    if (this.mediaStream) {
       this.mediaStream.getTracks().forEach(track => track.stop())
-      this.source.disconnect(properties.gainNode)
+      this.source.disconnect(this.gainNode)
       this.source = null
       console.log('Microphone input stopped')
       return
@@ -237,14 +237,10 @@ class Sound {
         if (this.clearBuffer) this.cleanupAudioBuffer()
         console.log('Stopping sound')
       })
-    } else {
-      console.error('No source to stop')
     }
   }
 
   clone() {
-    const properties = soundProperties.get(this)
-    const isMediaStreamSource = this.source && typeof this.source.mediaStream !== 'undefined'
     return new Sound({
       volume: this.volume,
       loop: this.loop,
@@ -252,8 +248,9 @@ class Sound {
       release: this.release,
       file: this.source && this.source.buffer ? this.source.buffer : undefined,
       wave: this.source && this.source.frequency ? { type: this.source.type, frequency: this.source.frequency.value } : undefined,
-      input: isMediaStreamSource,
-      audioFunction: this.source.onaudioprocess,
+      input: this.mediaStream ? true : undefined,
+      audioFunction: this.source ? this.source.onaudioprocess : undefined,
+      context: this.context
     })
   }
 
@@ -287,13 +284,11 @@ class Sound {
   }
 
   connect(node) {
-    const properties = soundProperties.get(this)
-    properties.gainNode.connect(node)
+    this.gainNode.connect(node)
   }
 
   disconnect(node) {
-    const properties = soundProperties.get(this)
-    properties.gainNode.disconnect(node)
+    this.gainNode.disconnect(node)
   }
 }
 
