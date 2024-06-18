@@ -397,23 +397,6 @@ class Timeline {
     this.soundQueue.remove(sound);
     this.scheduleSound(sound, newTime, offset, options);
   }
-  async playScheduledSounds() {
-    for (const scheduledSound of this.sounds) {
-      const { sound, time, offset, played, options } = scheduledSound;
-      if (this.currentTime >= time && (!played || options.loop)) {
-        try {
-          await sound.play(offset);
-          if (!options.loop) {
-            scheduledSound.played = true;
-          }
-          this.triggerEvent("onSoundPlayed", sound, time, offset);
-          console.log(`Played sound at ${time} with offset=${offset}`);
-        } catch (error) {
-          console.error("Error playing sound:", error);
-        }
-      }
-    }
-  }
   playNow(sound) {
     this.soundQueue.enqueue({ sound, time: this.context.currentTime, offset: 0, options: {} }, 0);
   }
