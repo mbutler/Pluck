@@ -40,13 +40,11 @@
       microphoneSound = new Pluck.Sound({ input: true, context: timeline.context });
       await microphoneSound.initialized;
       await microphoneSound.play();
-      console.log('Microphone input started');
     });
 
     document.getElementById('stopMicrophone').addEventListener('click', () => {
       if (microphoneSound) {
         microphoneSound.stop();
-        console.log('Microphone input stopped');
       }
     });
 
@@ -58,13 +56,11 @@
       fileSound = new Pluck.Sound({ file: 'snd.mp3', context: timeline.context });
       await fileSound.initialized;
       await fileSound.play();
-      console.log('Sound file started');
     });
 
     document.getElementById('stopFile').addEventListener('click', () => {
       if (fileSound) {
         fileSound.stop();
-        console.log('Sound file stopped');
       }
     });
 
@@ -76,13 +72,11 @@
       waveSound = new Pluck.Sound({ wave: { type: 'sine', frequency: 440 }, context: timeline.context });
       await waveSound.initialized;
       await waveSound.play();
-      console.log('Wave started');
     });
 
     document.getElementById('stopWave').addEventListener('click', () => {
       if (waveSound) {
         waveSound.stop();
-        console.log('Wave stopped');
       }
     });
 

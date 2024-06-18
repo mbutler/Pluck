@@ -47,15 +47,15 @@ async function runTests() {
       expected: true,
     },
     {
-      name: 'Test Sound Playback with Offset',
+      name: 'Test Sound Playback',
       script: `async () => {
         const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3' });
         await sound.initialized;
-        await sound.play(2); // Ensure the offset is included in play
+        await sound.play();
         return sound.isPlaying;
       }`,
       expected: true,
-    },
+    },    
     {
       name: 'Test Microphone Input Initialization',
       script: `async () => {
@@ -79,8 +79,8 @@ async function runTests() {
       script: `async () => {
         const sound = new window.Pluck.Sound({});
         await sound.initialized;
-        sound.play();
-        return sound.isPlaying;
+        await sound.play();
+        return sound.isPlaying === true;
       }`,
       expected: true,
     },

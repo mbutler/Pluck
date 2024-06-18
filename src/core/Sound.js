@@ -141,6 +141,7 @@ class Sound {
       const response = await fetch(file)
       const arrayBuffer = await response.arrayBuffer()
       this.audioBuffer = await this.context.decodeAudioData(arrayBuffer)
+      this.createSourceFromBuffer()
       console.log('Sound file loaded:', file)
     } catch (error) {
       console.error('Error loading sound file:', error)
@@ -209,15 +210,19 @@ class Sound {
       console.error('No audio buffer or source available to play')
       return
     }
-    if (this.audioBuffer) {
-      this.createSourceFromBuffer()
+
+    if (this.mediaStream) {
+      console.log('Microphone input started')
+      return
     }
   
     if (this.source && this.source.start) {
       this.applyAttack()
       console.log('Starting source', this.source)
       this.source.start(this.context.currentTime, offset)
-      console.log('Playing sound')
+    } else {
+      console.error('No source to play')
+      this.isPlaying = false
     }
   }
 
@@ -270,6 +275,14 @@ class Sound {
     this.gainNode.gain.setValueAtTime(this.volume, currentTime)
     this.gainNode.gain.linearRampToValueAtTime(0, currentTime + this.release)
     console.log('Release applied')
+  }
+
+  connect(node) {
+    this.gainNode.connect(node)
+  }
+
+  disconnect(node) {
+    this.gainNode.disconnect(node)
   }
 }
 
