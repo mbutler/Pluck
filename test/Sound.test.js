@@ -2,7 +2,7 @@ import puppeteer from 'puppeteer-core';
 
 async function runTests() {
   const browser = await puppeteer.launch({
-    executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" // Specify the path to the Chrome executable
+    executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   });
   const page = await browser.newPage();
 
