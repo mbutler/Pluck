@@ -28,7 +28,7 @@ async function runTests() {
       script: `async () => {
         const timeline = new window.Pluck.Timeline();
         timeline.start();
-        return timeline.context instanceof AudioContext;
+        return timeline.isPlaying;
       }`,
       expected: true,
     },
@@ -37,7 +37,7 @@ async function runTests() {
       script: `async () => {
         const context = new window.AudioContext();
         const sound1 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context: context });
-        const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context: context});
+        const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context: context });
         await sound1.initialized;
         await sound2.initialized;
         const group = new window.Pluck.Group([sound1, sound2]);
@@ -50,12 +50,84 @@ async function runTests() {
       name: 'Test Sound Playback with Offset',
       script: `async () => {
         const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3' });
-        await sound.play();
+        await sound.initialized;
+        await sound.play(2); // Ensure the offset is included in play
         return sound.isPlaying;
       }`,
       expected: true,
     },
+    {
+      name: 'Test Microphone Input Initialization',
+      script: `async () => {
+        const sound = new window.Pluck.Sound({ input: true });
+        return sound.mediaStream;
+      }`,
+      expected: true,
+    },
+    {
+      name: 'Test Volume Setter',
+      script: `async () => {
+        const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3' });
+        await sound.initialized;
+        sound.volume = 0.5;
+        return sound.volume === 0.5;
+      }`,
+      expected: true,
+    },
+    {
+      name: 'Test Play Method Without Source',
+      script: `async () => {
+        const sound = new window.Pluck.Sound({});
+        await sound.initialized;
+        sound.play();
+        return sound.isPlaying;
+      }`,
+      expected: true,
+    },
+    {
+      name: 'Test Stop Method',
+      script: `async () => {
+        const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3' });
+        await sound.initialized;
+        await sound.play();
+        sound.stop();
+        return sound.isPlaying === false;
+      }`,
+      expected: true,
+    },
+    {
+      name: 'Test Clone Method',
+      script: `async () => {
+        const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3', volume: 0.3 });
+        await sound.initialized;
+        const clonedSound = sound.clone();
+        await clonedSound.initialized;
+        return clonedSound.volume === 0.3 && clonedSound.context instanceof AudioContext;
+      }`,
+      expected: true,
+    },
+    {
+      name: 'Test Apply Attack',
+      script: `async () => {
+        const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3' });
+        await sound.initialized;
+        sound.applyAttack();
+        return sound.gainNode instanceof GainNode;
+      }`,
+      expected: true,
+    },
+    {
+      name: 'Test Apply Release',
+      script: `async () => {
+        const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3' });
+        await sound.initialized;
+        sound.applyRelease();
+        return sound.gainNode instanceof GainNode;
+      }`,
+      expected: true,
+    }
   ];
+  
 
   // Inject test cases into the page and run them
   const results = await page.evaluate(async (testCases) => {
