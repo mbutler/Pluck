@@ -52,7 +52,7 @@ class Timeline {
       const node = this.soundQueue.dequeue()
       const { sound, time, offset, options } = node
       console.log("node:", node)  
-      console.log(`Processing item scheduled for time: ${node.priority}`)      
+      console.log(`Processing item scheduled for time: ${time}`)      
 
       if (sound) {
         console.log('Playing sound:', sound)
