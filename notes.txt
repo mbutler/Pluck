@@ -5,7 +5,6 @@ class Sound {
     const audioContext = options.context || new (window.AudioContext || window.webkitAudioContext)()
     const gainNode = audioContext.createGain()
     const properties = {
-      fileName: options.file || null,
       context: audioContext,
       source: null,
       audioBuffer: options.audioBuffer || null,
@@ -13,11 +12,14 @@ class Sound {
       loop: options.loop || false,
       attack: options.attack || 0.04,
       release: options.release || 0.04,
-      offset: options.offset || 0,
       gainNode,
       mediaStream: options.input || null,
       clearBuffer: options.clearBuffer || false,
       isPlaying: false,
+      range: {
+        start: options.range?.start || 0,
+        end: options.range?.end || null // end will be set later based on buffer duration
+      }
     }
     soundProperties.set(this, properties)
 
@@ -27,13 +29,15 @@ class Sound {
   async initialize(options) {
     try {
       await this.initSource(options)
+      this.volume = options.volume || 1
+
+      const properties = soundProperties.get(this)
+      if (!properties.range.end && properties.audioBuffer) {
+        properties.range.end = properties.audioBuffer.duration
+      }
     } catch (error) {
       console.error('Error initializing source:', error)
     }
-  }
-
-  get fileName() {
-    return soundProperties.get(this).fileName
   }
 
   get context() {
@@ -56,6 +60,9 @@ class Sound {
   set audioBuffer(value) {
     const properties = soundProperties.get(this)
     properties.audioBuffer = value
+    if (!properties.range.end) {
+      properties.range.end = value.duration
+    }
   }
 
   get volume() {
@@ -97,15 +104,6 @@ class Sound {
     properties.release = value
   }
 
-  get offset() {
-    return soundProperties.get(this).offset
-  }
-
-  set offset(value) {
-    const properties = soundProperties.get(this)
-    properties.offset = value
-  }
-
   get gainNode() {
     return soundProperties.get(this).gainNode
   }
@@ -137,6 +135,18 @@ class Sound {
     properties.isPlaying = value
   }
 
+  get range() {
+    return soundProperties.get(this).range
+  }
+
+  set range(value) {
+    const properties = soundProperties.get(this)
+    properties.range = { ...properties.range, ...value }
+    if (!properties.range.end && properties.audioBuffer) {
+      properties.range.end = properties.audioBuffer.duration
+    }
+  }
+
   async initSource(options) {
     if (options.file) {
       await this.loadFromFile(options.file)
@@ -153,9 +163,15 @@ class Sound {
     try {
       console.log('Fetching sound file:', file)
       const response = await fetch(file)
+      if (!response.ok) {
+        throw new Error(`Network response was not ok: ${response.statusText}`)
+      }
       const arrayBuffer = await response.arrayBuffer()
-      this.audioBuffer = await this.context.decodeAudioData(arrayBuffer)
-      this.createSourceFromBuffer()
+      const properties = soundProperties.get(this)
+      properties.audioBuffer = await this.context.decodeAudioData(arrayBuffer)
+      if (!properties.range.end) {
+        properties.range.end = properties.audioBuffer.duration
+      }
       console.log('Sound file loaded:', file)
     } catch (error) {
       console.error('Error loading sound file:', error)
@@ -163,102 +179,54 @@ class Sound {
   }
 
   createSourceFromBuffer() {
-    if (!this.audioBuffer) {
+    const properties = soundProperties.get(this)
+    if (!properties.audioBuffer) {
       console.error('No audio buffer to create source from')
       return
     }
-    this.source = this.context.createBufferSource()
-    this.source.buffer = this.audioBuffer
-    this.source.loop = this.loop
-    this.connectSourceToGainNode()
-    this.source.onended = () => {
+    properties.source = this.context.createBufferSource()
+    properties.source.buffer = properties.audioBuffer
+    properties.source.loop = properties.loop
+    properties.source.loopStart = properties.range.start
+    properties.source.loopEnd = properties.range.end
+    properties.source.onended = () => {
       console.log('Sound playback ended')
-      this.isPlaying = false
-      this.source = null
-      if (this.clearBuffer) this.audioBuffer = null
+      properties.isPlaying = false
+      properties.source = null
+      if (properties.clearBuffer) properties.audioBuffer = null
     }
-    console.log('Created source from buffer:', this.source)
+    properties.source.connect(properties.gainNode)
   }
 
-  initFromWave(waveOptions) {
-    this.source = this.context.createOscillator()
-    this.source.type = waveOptions.type || 'sine'
-    this.source.frequency.value = waveOptions.frequency || 440
-    this.connectSourceToGainNode()
-    this.source.onended = () => {
-      console.log('Sound playback ended')
-      this.isPlaying = false
-      this.source = null
-    }
-  }
-
-  async initFromInput() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      this.mediaStream = stream
-      this.source = this.context.createMediaStreamSource(stream)
-      this.connectSourceToGainNode()
-    } catch (error) {
-      console.error('Error initializing microphone input:', error)
-    }
-  }
-
-  connectSourceToGainNode() {
-    if (this.source) {
-      this.source.connect(this.gainNode)
-      this.gainNode.connect(this.context.destination)
-      console.log('Source connected to gain node')
-    } else {
-      console.error('No source to connect to gain node')
-    }
-  }
-
-  async play() {
-    this.isPlaying = true
-    await this.initialized
-    if (this.context.state === 'suspended') {
-      await this.context.resume()
-    }
-
-    if (!this.audioBuffer && !this.source) {
-      console.error('No audio buffer or source available to play')
+  async play(offset = 0) {
+    const properties = soundProperties.get(this)
+    if (properties.isPlaying) {
+      console.log('Sound is already playing')
       return
     }
-
-    if (this.audioBuffer) {
-      this.createSourceFromBuffer()
-    }
-
-    if (this.mediaStream) {
-      console.log('Microphone input started')
-      return
-    }
-  
-    if (this.source && this.source.start) {
-      this.applyAttack()
-      console.log('Starting source', this.source)
-      this.source.start(this.context.currentTime, this.offset)
-    } else {
-      console.error('No source to play')
-      this.isPlaying = false
-    }
+    properties.isPlaying = true
+    this.createSourceFromBuffer() // Ensure a new source node is created
+    this.applyAttack()
+    console.log('Starting source', properties.source)
+    properties.source.start(this.context.currentTime, offset)
   }
 
   stop() {
-    this.isPlaying = false
-    if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach(track => track.stop())
-      this.source.disconnect()
-      this.source = null
+    const properties = soundProperties.get(this)
+    properties.isPlaying = false
+    if (properties.mediaStream) {
+      properties.mediaStream.getTracks().forEach(track => track.stop())
+      properties.source.disconnect()
+      properties.source = null
       console.log('Microphone input stopped')
       return
     }
-    if (this.source && this.source.stop) {
+    if (properties.source && properties.source.stop) {
       this.applyRelease(() => {
-        this.source.stop()
-        this.source.disconnect()
-        this.source = null
-        if (this.clearBuffer) this.audioBuffer = null
+        properties.source.stop()
+        properties.source.disconnect()
+        properties.source = null
+        if (properties.clearBuffer) properties.audioBuffer = null
         console.log('Stopping sound')
       })
     }
@@ -275,43 +243,40 @@ class Sound {
       release: properties.release,
       input: this.mediaStream || null,
       clearBuffer: properties.clearBuffer,
+      range: properties.range,
       file: this.source && this.source.buffer ? this.source.buffer : undefined,
       wave: this.source && this.source.frequency ? { type: this.source.type, frequency: this.source.frequency.value } : undefined,
     })
   }
 
   applyAttack() {
-    if (!this.gainNode) return
+    const properties = soundProperties.get(this)
+    if (!properties.gainNode) return
     const currentTime = this.context.currentTime
-    this.gainNode.gain.setValueAtTime(0, currentTime)
-    this.gainNode.gain.linearRampToValueAtTime(this.volume, currentTime + this.attack)
+    properties.gainNode.gain.setValueAtTime(0, currentTime)
+    properties.gainNode.gain.linearRampToValueAtTime(properties.volume, currentTime + properties.attack)
     console.log('Attack applied')
   }
 
-  applyRelease() {
-    if (!this.gainNode) return
+  applyRelease(callback) {
+    const properties = soundProperties.get(this)
+    if (!properties.gainNode) return
     const currentTime = this.context.currentTime
-    this.gainNode.gain.setValueAtTime(this.volume, currentTime)
-    this.gainNode.gain.linearRampToValueAtTime(0, currentTime + this.release)
+    properties.gainNode.gain.setValueAtTime(properties.volume, currentTime)
+    properties.gainNode.gain.linearRampToValueAtTime(0, currentTime + properties.release)
+    properties.gainNode.gain.setValueAtTime(0, currentTime + properties.release + 0.01)
     console.log('Release applied')
+    setTimeout(callback, properties.release * 1000)
   }
 
   connect(node) {
     const properties = soundProperties.get(this)
-    if (properties.source) {
-      properties.source.connect(node)
-    } else {
-      console.error('No source to connect')
-    }
+    properties.gainNode.connect(node)
   }
-  
+
   disconnect(node) {
     const properties = soundProperties.get(this)
-    if (properties.source) {
-      properties.source.disconnect(node)
-    } else {
-      console.error('No source to disconnect')
-    }
+    properties.gainNode.disconnect(node)
   }
 }
 

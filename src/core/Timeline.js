@@ -4,7 +4,7 @@ import PriorityQueue from './PriorityQueue.js'
 const timelineProperties = new WeakMap()
 
 class Timeline {
-  constructor(options = {}) {
+  constructor() {
     const properties = {
       context: null,
       currentTime: 0,
@@ -128,7 +128,7 @@ class Timeline {
     this.triggerEvent('onSoundScheduled', sound, time)
   }
 
-  rescheduleSound(sound, newTime, options = {}) {
+  rescheduleSound(sound, newTime) {
     this.soundQueue.remove(sound)
     this.scheduleSound(sound, newTime)
   }

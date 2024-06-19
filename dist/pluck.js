@@ -26,7 +26,6 @@ class Sound {
   async initialize(options) {
     try {
       await this.initSource(options);
-      this.volume = options.volume || 1;
     } catch (error) {
       console.error("Error initializing source:", error);
     }
@@ -144,6 +143,7 @@ class Sound {
     this.source = this.context.createBufferSource();
     this.source.buffer = this.audioBuffer;
     this.source.loop = this.loop;
+    this.connectSourceToGainNode();
     this.source.onended = () => {
       console.log("Sound playback ended");
       this.isPlaying = false;
@@ -152,18 +152,17 @@ class Sound {
         this.audioBuffer = null;
     };
     console.log("Created source from buffer:", this.source);
-    this.connectSourceToGainNode();
   }
   initFromWave(waveOptions) {
     this.source = this.context.createOscillator();
     this.source.type = waveOptions.type || "sine";
     this.source.frequency.value = waveOptions.frequency || 440;
+    this.connectSourceToGainNode();
     this.source.onended = () => {
       console.log("Sound playback ended");
       this.isPlaying = false;
       this.source = null;
     };
-    this.connectSourceToGainNode();
   }
   async initFromInput() {
     try {
@@ -204,7 +203,6 @@ class Sound {
     if (this.source && this.source.start) {
       this.applyAttack();
       console.log("Starting source", this.source);
-      console.log("offset:", this.offset);
       this.source.start(this.context.currentTime, this.offset);
     } else {
       console.error("No source to play");
@@ -263,10 +261,20 @@ class Sound {
     console.log("Release applied");
   }
   connect(node) {
-    this.gainNode.connect(node);
+    const properties = soundProperties.get(this);
+    if (properties.source) {
+      properties.source.connect(node);
+    } else {
+      console.error("No source to connect");
+    }
   }
   disconnect(node) {
-    this.gainNode.disconnect(node);
+    const properties = soundProperties.get(this);
+    if (properties.source) {
+      properties.source.disconnect(node);
+    } else {
+      console.error("No source to disconnect");
+    }
   }
 }
 var Sound_default = Sound;
@@ -355,7 +363,7 @@ var PriorityQueue_default = PriorityQueue;
 var timelineProperties = new WeakMap;
 
 class Timeline {
-  constructor(options = {}) {
+  constructor() {
     const properties = {
       context: null,
       currentTime: 0,
@@ -459,7 +467,7 @@ class Timeline {
     console.log("Queue state after scheduling:", this.soundQueue);
     this.triggerEvent("onSoundScheduled", sound, time);
   }
-  rescheduleSound(sound, newTime, options = {}) {
+  rescheduleSound(sound, newTime) {
     this.soundQueue.remove(sound);
     this.scheduleSound(sound, newTime);
   }
