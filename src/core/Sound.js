@@ -170,7 +170,7 @@ class Sound {
     this.source = this.context.createBufferSource()
     this.source.buffer = this.audioBuffer
     this.source.loop = this.loop
-    this.connectSourceToGainNode()
+    this.connectGain()
     this.source.onended = () => {
       console.log('Sound playback ended')
       this.isPlaying = false
@@ -184,7 +184,7 @@ class Sound {
     this.source = this.context.createOscillator()
     this.source.type = waveOptions.type || 'sine'
     this.source.frequency.value = waveOptions.frequency || 440
-    this.connectSourceToGainNode()
+    this.connectGain()
     this.source.onended = () => {
       console.log('Sound playback ended')
       this.isPlaying = false
@@ -197,13 +197,13 @@ class Sound {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       this.mediaStream = stream
       this.source = this.context.createMediaStreamSource(stream)
-      this.connectSourceToGainNode()
+      this.connectGain()
     } catch (error) {
       console.error('Error initializing microphone input:', error)
     }
   }
 
-  connectSourceToGainNode() {
+  connectGain() {
     if (this.source) {
       this.source.connect(this.gainNode)
       this.gainNode.connect(this.context.destination)
