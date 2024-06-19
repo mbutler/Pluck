@@ -5,17 +5,17 @@ class Timeline {
   constructor() {
     this.context = null
     this.sounds = []
-    this.startTime = null
     this.currentTime = 0
     this.lastTimestamp = 0
-    this.isPlaying = false,
+    this.isPlaying = false
     this.soundQueue = new PriorityQueue()
     this.events = {
       onStart: [],
       onStop: [],
       onLoop: [],
       onSoundScheduled: [],
-      onSoundPlayed: []
+      onSoundPlayed: [],
+      onEffectTriggered: []
     }
   }
 
@@ -33,40 +33,39 @@ class Timeline {
     }
   }
 
-  start() {
+  async start() {
     this.context = new (window.AudioContext || window.webkitAudioContext)()
     console.log('Audio context initialized', this.context)
-    this.startTime = this.context.currentTime
-    console.log('Timeline started', this.startTime)
     this.isPlaying = true
     this.triggerEvent('onStart')
+    await this.context.resume()  // Ensure the audio context is running
     this.loop()
   }
 
-  async loop() {
+  async loop(offset = 0) {
     if (!this.isPlaying) return
 
-    this.currentTime = this.context.currentTime - this.startTime
+    this.currentTime = this.context.currentTime
 
-    while (!this.soundQueue.isEmpty() && this.soundQueue.peek().time <= currentTime) {
-      const { sound, offset, options } = this.soundQueue.dequeue().item
-      try {
-        await sound.play(offset)
-        this.triggerEvent('onSoundPlayed', sound, currentTime, offset)
-        if (options.loop) {
-          this.scheduleSound(sound, currentTime + sound.audioBuffer.duration, offset, options)
+    while (!this.soundQueue.isEmpty() && this.soundQueue.peek().priority <= this.currentTime) {
+
+      const node = this.soundQueue.dequeue()
+      const { sound, time, offset, options } = node
+      console.log("node:", node)  
+      console.log(`Processing item scheduled for time: ${node.priority}`)      
+
+      if (sound) {
+        console.log('Playing sound:', sound)
+        try {
+          await sound.play(offset)
+          this.triggerEvent('onSoundPlayed', sound, this.currentTime, offset)
+        } catch (error) {
+          console.error("Error playing sound:", error)
         }
-      } catch (error) {
-        console.error("Error playing sound:", error)
       }
     }
 
-    if (this.currentTime - this.lastTimestamp >= 1) {
-      this.lastTimestamp = this.currentTime
-      this.runEverySecond()
-      this.triggerEvent('onLoop')
-    }
-
+    this.triggerEvent('onLoop')
     requestAnimationFrame(() => this.loop())
   }
 
@@ -77,6 +76,8 @@ class Timeline {
 
   scheduleSound(sound, time, offset = 0, options = {}) {
     this.soundQueue.enqueue({ sound, time, offset, options }, time)
+    console.log(`Scheduled sound at ${time} with offset ${offset}`)
+    console.log("Queue state after scheduling:", this.soundQueue)
     this.triggerEvent('onSoundScheduled', sound, time, offset, options)
   }
 
@@ -86,9 +87,10 @@ class Timeline {
   }
 
   playNow(sound) {
-    this.soundQueue.enqueue({ sound, time: this.context.currentTime, offset: 0, options: {} }, 0)
+    this.soundQueue.enqueue({ sound, time: this.currentTime, offset: 0, options: {} }, this.currentTime)
+    console.log(`Playing sound immediately at ${this.currentTime}`)
   }
-  
+
   scheduleEffect(effect, time) {
     this.soundQueue.enqueue({ effect, time }, time)
   }
@@ -107,6 +109,7 @@ class Timeline {
     const sound = new Sound({ file, context: this.context, ...options })
     await sound.initialized
     await sound.play(offset)
+    this.triggerEvent('onSoundPlayed', sound, this.currentTime, offset)
   }
 
   runEverySecond() {

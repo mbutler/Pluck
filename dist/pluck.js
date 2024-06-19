@@ -182,6 +182,9 @@ class Sound {
       console.error("No audio buffer or source available to play");
       return;
     }
+    if (this.audioBuffer) {
+      this.createSourceFromBuffer();
+    }
     if (this.mediaStream) {
       console.log("Microphone input started");
       return;
@@ -233,17 +236,17 @@ class Sound {
   applyAttack() {
     if (!this.gainNode)
       return;
-    const currentTime2 = this.context.currentTime;
-    this.gainNode.gain.setValueAtTime(0, currentTime2);
-    this.gainNode.gain.linearRampToValueAtTime(this.volume, currentTime2 + this.attack);
+    const currentTime = this.context.currentTime;
+    this.gainNode.gain.setValueAtTime(0, currentTime);
+    this.gainNode.gain.linearRampToValueAtTime(this.volume, currentTime + this.attack);
     console.log("Attack applied");
   }
   applyRelease() {
     if (!this.gainNode)
       return;
-    const currentTime2 = this.context.currentTime;
-    this.gainNode.gain.setValueAtTime(this.volume, currentTime2);
-    this.gainNode.gain.linearRampToValueAtTime(0, currentTime2 + this.release);
+    const currentTime = this.context.currentTime;
+    this.gainNode.gain.setValueAtTime(this.volume, currentTime);
+    this.gainNode.gain.linearRampToValueAtTime(0, currentTime + this.release);
     console.log("Release applied");
   }
   connect(node) {
@@ -263,25 +266,26 @@ class PriorityQueue {
   enqueue(item, priority) {
     const node = { item, priority };
     this.queue.push(node);
-    this.bubbleUp();
+    this.bubbleUp(this.queue.length - 1);
   }
   dequeue() {
+    if (this.isEmpty())
+      return null;
     const first = this.queue[0];
     const last = this.queue.pop();
     if (this.queue.length > 0) {
       this.queue[0] = last;
-      this.bubbleDown();
+      this.bubbleDown(0);
     }
     return first.item;
   }
   peek() {
-    return this.queue[0]?.item;
+    return this.queue[0];
   }
   isEmpty() {
     return this.queue.length === 0;
   }
-  bubbleUp() {
-    let index = this.queue.length - 1;
+  bubbleUp(index) {
     const node = this.queue[index];
     while (index > 0) {
       const parentIndex = Math.floor((index - 1) / 2);
@@ -293,24 +297,22 @@ class PriorityQueue {
     }
     this.queue[index] = node;
   }
-  bubbleDown() {
-    let index = 0;
+  bubbleDown(index) {
     const length = this.queue.length;
     const node = this.queue[index];
     while (true) {
       const leftChildIndex = 2 * index + 1;
       const rightChildIndex = 2 * index + 2;
-      let leftChild, rightChild;
+      let leftChild = this.queue[leftChildIndex];
+      let rightChild = this.queue[rightChildIndex];
       let swapIndex = null;
       if (leftChildIndex < length) {
-        leftChild = this.queue[leftChildIndex];
         if (leftChild.priority < node.priority) {
           swapIndex = leftChildIndex;
         }
       }
       if (rightChildIndex < length) {
-        rightChild = this.queue[rightChildIndex];
-        if (swapIndex === null && rightChild.priority < node.priority || swapIndex !== null && rightChild.priority < leftChild.priority) {
+        if (swapIndex === null && rightChild.priority < node.priority || swapIndex !== null && rightChild.priority < leftChild?.priority) {
           swapIndex = rightChildIndex;
         }
       }
@@ -328,49 +330,10 @@ class PriorityQueue {
     const last = this.queue.pop();
     if (index < this.queue.length) {
       this.queue[index] = last;
-      this.bubbleUpFrom(index);
-      this.bubbleDownFrom(index);
+      this.bubbleUp(index);
+      this.bubbleDown(index);
     }
     return true;
-  }
-  bubbleUpFrom(index) {
-    const node = this.queue[index];
-    while (index > 0) {
-      const parentIndex = Math.floor((index - 1) / 2);
-      const parent = this.queue[parentIndex];
-      if (node.priority >= parent.priority)
-        break;
-      this.queue[index] = parent;
-      index = parentIndex;
-    }
-    this.queue[index] = node;
-  }
-  bubbleDownFrom(index) {
-    const length = this.queue.length;
-    const node = this.queue[index];
-    while (true) {
-      const leftChildIndex = 2 * index + 1;
-      const rightChildIndex = 2 * index + 2;
-      let leftChild, rightChild;
-      let swapIndex = null;
-      if (leftChildIndex < length) {
-        leftChild = this.queue[leftChildIndex];
-        if (leftChild.priority < node.priority) {
-          swapIndex = leftChildIndex;
-        }
-      }
-      if (rightChildIndex < length) {
-        rightChild = this.queue[rightChildIndex];
-        if (swapIndex === null && rightChild.priority < node.priority || swapIndex !== null && rightChild.priority < leftChild.priority) {
-          swapIndex = rightChildIndex;
-        }
-      }
-      if (swapIndex === null)
-        break;
-      this.queue[index] = this.queue[swapIndex];
-      index = swapIndex;
-    }
-    this.queue[index] = node;
   }
 }
 var PriorityQueue_default = PriorityQueue;
@@ -380,16 +343,17 @@ class Timeline {
   constructor() {
     this.context = null;
     this.sounds = [];
-    this.startTime = null;
     this.currentTime = 0;
     this.lastTimestamp = 0;
-    this.isPlaying = false, this.soundQueue = new PriorityQueue_default;
+    this.isPlaying = false;
+    this.soundQueue = new PriorityQueue_default;
     this.events = {
       onStart: [],
       onStop: [],
       onLoop: [],
       onSoundScheduled: [],
-      onSoundPlayed: []
+      onSoundPlayed: [],
+      onEffectTriggered: []
     };
   }
   on(event, listener) {
@@ -404,36 +368,34 @@ class Timeline {
       this.events[event].forEach((listener) => listener(...args));
     }
   }
-  start() {
+  async start() {
     this.context = new (window.AudioContext || window.webkitAudioContext);
     console.log("Audio context initialized", this.context);
-    this.startTime = this.context.currentTime;
-    console.log("Timeline started", this.startTime);
     this.isPlaying = true;
     this.triggerEvent("onStart");
+    await this.context.resume();
     this.loop();
   }
-  async loop() {
+  async loop(offset = 0) {
     if (!this.isPlaying)
       return;
-    this.currentTime = this.context.currentTime - this.startTime;
-    while (!this.soundQueue.isEmpty() && this.soundQueue.peek().time <= currentTime) {
-      const { sound, offset, options } = this.soundQueue.dequeue().item;
-      try {
-        await sound.play(offset);
-        this.triggerEvent("onSoundPlayed", sound, currentTime, offset);
-        if (options.loop) {
-          this.scheduleSound(sound, currentTime + sound.audioBuffer.duration, offset, options);
+    this.currentTime = this.context.currentTime;
+    while (!this.soundQueue.isEmpty() && this.soundQueue.peek().priority <= this.currentTime) {
+      const node = this.soundQueue.dequeue();
+      const { sound, time, offset: offset2, options } = node;
+      console.log("node:", node);
+      console.log(`Processing item scheduled for time: ${node.priority}`);
+      if (sound) {
+        console.log("Playing sound:", sound);
+        try {
+          await sound.play(offset2);
+          this.triggerEvent("onSoundPlayed", sound, this.currentTime, offset2);
+        } catch (error) {
+          console.error("Error playing sound:", error);
         }
-      } catch (error) {
-        console.error("Error playing sound:", error);
       }
     }
-    if (this.currentTime - this.lastTimestamp >= 1) {
-      this.lastTimestamp = this.currentTime;
-      this.runEverySecond();
-      this.triggerEvent("onLoop");
-    }
+    this.triggerEvent("onLoop");
     requestAnimationFrame(() => this.loop());
   }
   stop() {
@@ -442,6 +404,8 @@ class Timeline {
   }
   scheduleSound(sound, time, offset = 0, options = {}) {
     this.soundQueue.enqueue({ sound, time, offset, options }, time);
+    console.log(`Scheduled sound at ${time} with offset ${offset}`);
+    console.log("Queue state after scheduling:", this.soundQueue);
     this.triggerEvent("onSoundScheduled", sound, time, offset, options);
   }
   rescheduleSound(sound, newTime, offset = 0, options = {}) {
@@ -449,7 +413,8 @@ class Timeline {
     this.scheduleSound(sound, newTime, offset, options);
   }
   playNow(sound) {
-    this.soundQueue.enqueue({ sound, time: this.context.currentTime, offset: 0, options: {} }, 0);
+    this.soundQueue.enqueue({ sound, time: this.currentTime, offset: 0, options: {} }, this.currentTime);
+    console.log(`Playing sound immediately at ${this.currentTime}`);
   }
   scheduleEffect(effect, time) {
     this.soundQueue.enqueue({ effect, time }, time);
@@ -467,6 +432,7 @@ class Timeline {
     const sound = new Sound_default({ file, context: this.context, ...options });
     await sound.initialized;
     await sound.play(offset);
+    this.triggerEvent("onSoundPlayed", sound, this.currentTime, offset);
   }
   runEverySecond() {
     console.log("Every second");
@@ -577,9 +543,9 @@ class Group {
       return;
     }
     const gainNode = groupProperties.get(this).gainNode;
-    const currentTime2 = this.context.currentTime;
-    gainNode.gain.setValueAtTime(gainNode.gain.value, currentTime2);
-    gainNode.gain.linearRampToValueAtTime(value, currentTime2 + duration);
+    const currentTime = this.context.currentTime;
+    gainNode.gain.setValueAtTime(gainNode.gain.value, currentTime);
+    gainNode.gain.linearRampToValueAtTime(value, currentTime + duration);
     console.log(`Volume set to ${value} over ${duration} seconds`);
   }
   mute() {

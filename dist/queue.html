@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pluck Timeline Test</title>
+</head>
+<body>
+  <h1>Pluck Timeline Test</h1>
+  <p>Click the button below to start the timeline and play sounds.</p>
+  <button id="startButton">Start Timeline</button>
+  <script src="pluck.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const startButton = document.getElementById('startButton')
+      startButton.addEventListener('click', async () => {
+        const timeline = new window.Pluck.Timeline()
+        await timeline.start()
+
+        // Create and initialize sounds
+        const sound1 = new window.Pluck.Sound({ file: 'sound1.mp3', context: timeline.context })
+        const sound2 = new window.Pluck.Sound({ file: 'sound2.mp3', context: timeline.context })
+        const sound3 = new window.Pluck.Sound({ file: 'snd.mp3', context: timeline.context })
+
+        await sound1.initialized
+        await sound2.initialized
+        await sound3.initialized
+
+        console.log("Sounds initialized")
+
+        // Schedule sound1 to play at 1 second
+        timeline.scheduleSound(sound1, 1)
+        console.log("Scheduled sound1 to play at 1 second")
+
+        // Schedule sound2 to play at 3 seconds
+        timeline.scheduleSound(sound2, 3)
+        console.log("Scheduled sound2 to play at 3 seconds")
+
+        // Schedule sound3 to play at 5 seconds
+        timeline.scheduleSound(sound3, 5)
+        console.log("Scheduled sound3 to play at 5 seconds")
+
+        // Reschedule sound2 to play at 25 seconds
+        timeline.rescheduleSound(sound3, 25)
+        console.log("Rescheduled sound3 to play at 25 seconds")
+
+        // Play sound1 immediately
+        timeline.playNow(sound1)
+        console.log("Playing sound1 immediately")
+
+        // Log events to the console
+        timeline.on('onSoundScheduled', (sound, time, offset, options) => {
+          console.log(`Sound scheduled at ${time} with offset ${offset}.`)
+        })
+
+        timeline.on('onSoundPlayed', (sound, time, offset) => {
+          console.log(`Sound played at ${time} with offset ${offset}.`)
+        })
+
+        timeline.on('onLoop', () => {
+        })
+
+        timeline.on('onStop', () => {
+          console.log('Timeline stopped.')
+        })
+
+        console.log("Timeline started")
+      })
+    })
+  </script>
+</body>
+</html>

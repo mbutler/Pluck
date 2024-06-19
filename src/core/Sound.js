@@ -211,6 +211,10 @@ class Sound {
       return
     }
 
+    if (this.audioBuffer) {
+      this.createSourceFromBuffer()
+    }
+
     if (this.mediaStream) {
       console.log('Microphone input started')
       return
