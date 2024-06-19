@@ -6,6 +6,7 @@ class Sound {
     const audioContext = options.context || new (window.AudioContext || window.webkitAudioContext);
     const gainNode = audioContext.createGain();
     const properties = {
+      fileName: options.file || null,
       context: audioContext,
       source: null,
       audioBuffer: options.audioBuffer || null,
@@ -29,6 +30,9 @@ class Sound {
     } catch (error) {
       console.error("Error initializing source:", error);
     }
+  }
+  get fileName() {
+    return soundProperties.get(this).fileName;
   }
   get context() {
     return soundProperties.get(this).context;
@@ -372,9 +376,9 @@ class Timeline {
       console.error(`Event ${event} is not supported.`);
     }
   }
-  triggerEvent(event, sound, time, options) {
+  triggerEvent(event, sound, time) {
     if (this.events[event]) {
-      this.events[event].forEach((listener) => listener(sound, time, options));
+      this.events[event].forEach((listener) => listener(sound, time));
     }
   }
   async start() {
@@ -391,14 +395,13 @@ class Timeline {
     this.currentTime = this.context.currentTime;
     while (!this.soundQueue.isEmpty() && this.soundQueue.peek().priority <= this.currentTime) {
       const node = this.soundQueue.dequeue();
-      const { sound, time, options } = node;
-      console.log("OPTIONS:", options);
+      const { sound, time } = node;
       console.log(`Processing item scheduled for time: ${time}`);
       if (sound) {
         console.log("Playing sound:", sound);
         try {
+          this.triggerEvent("onSoundPlayed", sound, this.currentTime);
           await sound.play();
-          this.triggerEvent("onSoundPlayed", sound, this.currentTime, options);
         } catch (error) {
           console.error("Error playing sound:", error);
         }
@@ -411,36 +414,36 @@ class Timeline {
     this.isPlaying = false;
     this.triggerEvent("onStop");
   }
-  scheduleSound(sound, time, options = {}) {
-    this.soundQueue.enqueue({ sound, time, options }, time);
+  scheduleSound(sound, time) {
+    this.soundQueue.enqueue({ sound, time }, time);
     console.log("Queue state after scheduling:", this.soundQueue);
-    this.triggerEvent("onSoundScheduled", sound, time, options);
+    this.triggerEvent("onSoundScheduled", sound, time);
   }
   rescheduleSound(sound, newTime, options = {}) {
     this.soundQueue.remove(sound);
-    this.scheduleSound(sound, newTime, options);
+    this.scheduleSound(sound, newTime);
   }
   playNow(sound) {
-    this.soundQueue.enqueue({ sound, time: this.currentTime, options: {} }, this.currentTime);
+    this.soundQueue.enqueue({ sound, time: this.currentTime }, this.currentTime);
     console.log(`Playing sound immediately at ${this.currentTime}`);
   }
   scheduleEffect(effect, time) {
     this.soundQueue.enqueue({ effect, time }, time);
   }
   async addSound(file, startTime, options = {}) {
-    const sound = new Sound_default({ file, context: this.context, ...options });
+    const sound = new Sound_default({ file, ...options });
     await sound.initialized;
-    this.scheduleSound(sound, startTime, options);
+    this.scheduleSound(sound, startTime);
   }
   async playSound(file, options = {}) {
     if (!this.context) {
       console.error("Audio context is not initialized. Call start() first.");
       return;
     }
-    const sound = new Sound_default({ file, context: this.context, ...options });
+    const sound = new Sound_default({ file, ...options });
     await sound.initialized;
     await sound.play();
-    this.triggerEvent("onSoundPlayed", sound, this.currentTime, options);
+    this.triggerEvent("onSoundPlayed", sound, this.currentTime);
   }
   runEverySecond() {
     console.log("Every second");

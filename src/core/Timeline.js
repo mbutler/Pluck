@@ -27,9 +27,9 @@ class Timeline {
     }
   }
 
-  triggerEvent(event, sound, time, options) {
+  triggerEvent(event, sound, time) {
     if (this.events[event]) {
-      this.events[event].forEach(listener => listener(sound, time, options))
+      this.events[event].forEach(listener => listener(sound, time))
     }
   }
 
@@ -50,15 +50,14 @@ class Timeline {
     while (!this.soundQueue.isEmpty() && this.soundQueue.peek().priority <= this.currentTime) {
 
       const node = this.soundQueue.dequeue()
-      const { sound, time, options } = node
-      console.log("OPTIONS:", options)  
+      const { sound, time } = node
       console.log(`Processing item scheduled for time: ${time}`)      
 
       if (sound) {
         console.log('Playing sound:', sound)
         try {
-          await sound.play()
-          this.triggerEvent('onSoundPlayed', sound, this.currentTime, options)
+          this.triggerEvent('onSoundPlayed', sound, this.currentTime)
+          await sound.play()          
         } catch (error) {
           console.error("Error playing sound:", error)
         }
@@ -74,19 +73,19 @@ class Timeline {
     this.triggerEvent('onStop')
   }
 
-  scheduleSound(sound, time, options = {}) {
-    this.soundQueue.enqueue({ sound, time, options }, time)
+  scheduleSound(sound, time) {
+    this.soundQueue.enqueue({ sound, time }, time)
     console.log("Queue state after scheduling:", this.soundQueue)
-    this.triggerEvent('onSoundScheduled', sound, time, options)
+    this.triggerEvent('onSoundScheduled', sound, time)
   }
 
   rescheduleSound(sound, newTime, options = {}) {
     this.soundQueue.remove(sound)
-    this.scheduleSound(sound, newTime, options)
+    this.scheduleSound(sound, newTime)
   }
 
   playNow(sound) {
-    this.soundQueue.enqueue({ sound, time: this.currentTime, options: {} }, this.currentTime)
+    this.soundQueue.enqueue({ sound, time: this.currentTime }, this.currentTime)
     console.log(`Playing sound immediately at ${this.currentTime}`)
   }
 
@@ -95,9 +94,9 @@ class Timeline {
   }
 
   async addSound(file, startTime, options = {}) {
-    const sound = new Sound({ file, context: this.context, ...options })
+    const sound = new Sound({ file, ...options })
     await sound.initialized
-    this.scheduleSound(sound, startTime, options)
+    this.scheduleSound(sound, startTime)
   }
 
   async playSound(file, options = {}) {
@@ -105,10 +104,10 @@ class Timeline {
       console.error('Audio context is not initialized. Call start() first.')
       return
     }
-    const sound = new Sound({ file, context: this.context, ...options })
+    const sound = new Sound({ file, ...options })
     await sound.initialized
     await sound.play()
-    this.triggerEvent('onSoundPlayed', sound, this.currentTime, options)
+    this.triggerEvent('onSoundPlayed', sound, this.currentTime)
   }
 
   runEverySecond() {

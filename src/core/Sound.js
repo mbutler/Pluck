@@ -5,6 +5,7 @@ class Sound {
     const audioContext = options.context || new (window.AudioContext || window.webkitAudioContext)()
     const gainNode = audioContext.createGain()
     const properties = {
+      fileName: options.file || null,
       context: audioContext,
       source: null,
       audioBuffer: options.audioBuffer || null,
@@ -30,6 +31,10 @@ class Sound {
     } catch (error) {
       console.error('Error initializing source:', error)
     }
+  }
+
+  get fileName() {
+    return soundProperties.get(this).fileName
   }
 
   get context() {
