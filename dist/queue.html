@@ -18,7 +18,7 @@
         await timeline.start()
 
         // Create and initialize sounds
-        const sound1 = new window.Pluck.Sound({ file: 'sound1.mp3', context: timeline.context })
+        const sound1 = new window.Pluck.Sound({ file: 'sound1.mp3', context: timeline.context, offset: 12})
         const sound2 = new window.Pluck.Sound({ file: 'sound2.mp3', context: timeline.context })
         const sound3 = new window.Pluck.Sound({ file: 'snd.mp3', context: timeline.context })
 
@@ -49,12 +49,12 @@
         console.log("Playing sound1 immediately")
 
         // Log events to the console
-        timeline.on('onSoundScheduled', (sound, time, offset, options) => {
-          console.log(`Sound scheduled at ${time} with offset ${offset}.`)
+        timeline.on('onSoundScheduled', (sound, time) => {
+          `Sound ${sound.file} scheduled to play at ${time} seconds}`
         })
 
-        timeline.on('onSoundPlayed', (sound, time, offset) => {
-          console.log(`Sound played at ${time} with offset ${offset}.`)
+        timeline.on('onSoundPlayed', (sound, time) => {
+          
         })
 
         timeline.on('onLoop', () => {

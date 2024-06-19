@@ -13,6 +13,7 @@ class Sound {
       loop: options.loop || false,
       attack: options.attack || 0.04,
       release: options.release || 0.04,
+      offset: options.offset || 0,
       gainNode,
       mediaStream: options.input || null,
       clearBuffer: options.clearBuffer || false,
@@ -76,6 +77,13 @@ class Sound {
   set release(value) {
     const properties = soundProperties.get(this);
     properties.release = value;
+  }
+  get offset() {
+    return soundProperties.get(this).offset;
+  }
+  set offset(value) {
+    const properties = soundProperties.get(this);
+    properties.offset = value;
   }
   get gainNode() {
     return soundProperties.get(this).gainNode;
@@ -172,7 +180,7 @@ class Sound {
       console.error("No source to connect to gain node");
     }
   }
-  async play(offset = 0) {
+  async play() {
     this.isPlaying = true;
     await this.initialized;
     if (this.context.state === "suspended") {
@@ -192,7 +200,8 @@ class Sound {
     if (this.source && this.source.start) {
       this.applyAttack();
       console.log("Starting source", this.source);
-      this.source.start(this.context.currentTime, offset);
+      console.log("offset:", this.offset);
+      this.source.start(this.context.currentTime, this.offset);
     } else {
       console.error("No source to play");
       this.isPlaying = false;
@@ -363,9 +372,9 @@ class Timeline {
       console.error(`Event ${event} is not supported.`);
     }
   }
-  triggerEvent(event, ...args) {
+  triggerEvent(event, sound, time, options) {
     if (this.events[event]) {
-      this.events[event].forEach((listener) => listener(...args));
+      this.events[event].forEach((listener) => listener(sound, time, options));
     }
   }
   async start() {
@@ -376,20 +385,20 @@ class Timeline {
     await this.context.resume();
     this.loop();
   }
-  async loop(offset = 0) {
+  async loop() {
     if (!this.isPlaying)
       return;
     this.currentTime = this.context.currentTime;
     while (!this.soundQueue.isEmpty() && this.soundQueue.peek().priority <= this.currentTime) {
       const node = this.soundQueue.dequeue();
-      const { sound, time, offset: offset2, options } = node;
-      console.log("node:", node);
+      const { sound, time, options } = node;
+      console.log("OPTIONS:", options);
       console.log(`Processing item scheduled for time: ${time}`);
       if (sound) {
         console.log("Playing sound:", sound);
         try {
-          await sound.play(offset2);
-          this.triggerEvent("onSoundPlayed", sound, this.currentTime, offset2);
+          await sound.play();
+          this.triggerEvent("onSoundPlayed", sound, this.currentTime, options);
         } catch (error) {
           console.error("Error playing sound:", error);
         }
@@ -402,37 +411,36 @@ class Timeline {
     this.isPlaying = false;
     this.triggerEvent("onStop");
   }
-  scheduleSound(sound, time, offset = 0, options = {}) {
-    this.soundQueue.enqueue({ sound, time, offset, options }, time);
-    console.log(`Scheduled sound at ${time} with offset ${offset}`);
+  scheduleSound(sound, time, options = {}) {
+    this.soundQueue.enqueue({ sound, time, options }, time);
     console.log("Queue state after scheduling:", this.soundQueue);
-    this.triggerEvent("onSoundScheduled", sound, time, offset, options);
+    this.triggerEvent("onSoundScheduled", sound, time, options);
   }
-  rescheduleSound(sound, newTime, offset = 0, options = {}) {
+  rescheduleSound(sound, newTime, options = {}) {
     this.soundQueue.remove(sound);
-    this.scheduleSound(sound, newTime, offset, options);
+    this.scheduleSound(sound, newTime, options);
   }
   playNow(sound) {
-    this.soundQueue.enqueue({ sound, time: this.currentTime, offset: 0, options: {} }, this.currentTime);
+    this.soundQueue.enqueue({ sound, time: this.currentTime, options: {} }, this.currentTime);
     console.log(`Playing sound immediately at ${this.currentTime}`);
   }
   scheduleEffect(effect, time) {
     this.soundQueue.enqueue({ effect, time }, time);
   }
-  async addSound(file, offset = 0, startTime, options = {}) {
+  async addSound(file, startTime, options = {}) {
     const sound = new Sound_default({ file, context: this.context, ...options });
     await sound.initialized;
-    this.scheduleSound(sound, startTime, offset, options);
+    this.scheduleSound(sound, startTime, options);
   }
-  async playSound(file, offset = 0, options = {}) {
+  async playSound(file, options = {}) {
     if (!this.context) {
       console.error("Audio context is not initialized. Call start() first.");
       return;
     }
     const sound = new Sound_default({ file, context: this.context, ...options });
     await sound.initialized;
-    await sound.play(offset);
-    this.triggerEvent("onSoundPlayed", sound, this.currentTime, offset);
+    await sound.play();
+    this.triggerEvent("onSoundPlayed", sound, this.currentTime, options);
   }
   runEverySecond() {
     console.log("Every second");

@@ -12,6 +12,7 @@ class Sound {
       loop: options.loop || false,
       attack: options.attack || 0.04,
       release: options.release || 0.04,
+      offset: options.offset || 0,
       gainNode,
       mediaStream: options.input || null,
       clearBuffer: options.clearBuffer || false,
@@ -90,6 +91,15 @@ class Sound {
   set release(value) {
     const properties = soundProperties.get(this)
     properties.release = value
+  }
+
+  get offset() {
+    return soundProperties.get(this).offset
+  }
+
+  set offset(value) {
+    const properties = soundProperties.get(this)
+    properties.offset = value
   }
 
   get gainNode() {
@@ -199,7 +209,7 @@ class Sound {
     }
   }
 
-  async play(offset = 0) {
+  async play() {
     this.isPlaying = true
     await this.initialized
     if (this.context.state === 'suspended') {
@@ -223,7 +233,8 @@ class Sound {
     if (this.source && this.source.start) {
       this.applyAttack()
       console.log('Starting source', this.source)
-      this.source.start(this.context.currentTime, offset)
+      console.log('offset:', this.offset)
+      this.source.start(this.context.currentTime, this.offset)
     } else {
       console.error('No source to play')
       this.isPlaying = false
