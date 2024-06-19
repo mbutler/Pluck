@@ -352,33 +352,73 @@ class PriorityQueue {
 var PriorityQueue_default = PriorityQueue;
 
 // src/core/Timeline.js
+var timelineProperties = new WeakMap;
+
 class Timeline {
-  constructor() {
-    this.context = null;
-    this.sounds = [];
-    this.currentTime = 0;
-    this.lastTimestamp = 0;
-    this.isPlaying = false;
-    this.soundQueue = new PriorityQueue_default;
-    this.events = {
-      onStart: [],
-      onStop: [],
-      onLoop: [],
-      onSoundScheduled: [],
-      onSoundPlayed: [],
-      onEffectTriggered: []
+  constructor(options = {}) {
+    const properties = {
+      context: null,
+      currentTime: 0,
+      isPlaying: false,
+      soundQueue: new PriorityQueue_default,
+      events: {
+        onStart: [],
+        onStop: [],
+        onLoop: [],
+        onSoundScheduled: [],
+        onSoundPlayed: [],
+        onEffectTriggered: []
+      }
     };
+    timelineProperties.set(this, properties);
+  }
+  get context() {
+    return timelineProperties.get(this).context;
+  }
+  set context(value) {
+    const properties = timelineProperties.get(this);
+    properties.context = value;
+  }
+  get currentTime() {
+    return timelineProperties.get(this).currentTime;
+  }
+  set currentTime(value) {
+    const properties = timelineProperties.get(this);
+    properties.currentTime = value;
+  }
+  get isPlaying() {
+    return timelineProperties.get(this).isPlaying;
+  }
+  set isPlaying(value) {
+    const properties = timelineProperties.get(this);
+    properties.isPlaying = value;
+  }
+  get soundQueue() {
+    return timelineProperties.get(this).soundQueue;
+  }
+  get events() {
+    return timelineProperties.get(this).events;
   }
   on(event, listener) {
-    if (this.events[event]) {
-      this.events[event].push(listener);
+    const properties = timelineProperties.get(this);
+    if (properties.events[event]) {
+      properties.events[event].push(listener);
+    } else {
+      console.error(`Event ${event} is not supported.`);
+    }
+  }
+  off(event, listener) {
+    const properties = timelineProperties.get(this);
+    if (properties.events[event]) {
+      properties.events[event] = properties.events[event].filter((l) => l !== listener);
     } else {
       console.error(`Event ${event} is not supported.`);
     }
   }
   triggerEvent(event, sound, time) {
-    if (this.events[event]) {
-      this.events[event].forEach((listener) => listener(sound, time));
+    const properties = timelineProperties.get(this);
+    if (properties.events[event]) {
+      properties.events[event].forEach((listener) => listener(sound, time));
     }
   }
   async start() {
@@ -426,9 +466,6 @@ class Timeline {
   playNow(sound) {
     this.soundQueue.enqueue({ sound, time: this.currentTime }, this.currentTime);
     console.log(`Playing sound immediately at ${this.currentTime}`);
-  }
-  scheduleEffect(effect, time) {
-    this.soundQueue.enqueue({ effect, time }, time);
   }
   async addSound(file, startTime, options = {}) {
     const sound = new Sound_default({ file, ...options });
