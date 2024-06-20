@@ -25,7 +25,10 @@
         const sound3 = new window.Pluck.Sound({ file: 'snd.mp3', context: timeline.context })
 
         // use the Timeline to create and schedule a Sound, passing in options
-        const sound4 = timeline.addSound( 'snd.mp3', timeline.currentTime + 15, { volume: 0.69 })
+        const sound4 = timeline.addSound( 'snd.mp3', 15, { volume: 0.69 })
+
+        const sound5 = timeline.addSound( 'snd.mp3', timeline.future(30))
+
 
         await sound1.initialized
         await sound2.initialized

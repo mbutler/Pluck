@@ -76,6 +76,10 @@ class Timeline {
     }
   }
 
+  future(seconds) {
+    return this.currentTime + seconds
+  }
+
   triggerEvent(event, sound, time) {
     const properties = timelineProperties.get(this)
     if (properties.events[event]) {
@@ -145,10 +149,6 @@ class Timeline {
   }
 
   async playSound(file, options = {}) {
-    if (!this.context) {
-      console.error('Audio context is not initialized. Call start() first.')
-      return
-    }
     const sound = new Sound({ file, ...options })
     await sound.initialized
     await sound.play()
