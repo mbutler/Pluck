@@ -9,13 +9,21 @@
   <h1>Pluck Timeline Test</h1>
   <p>Click the button below to start the timeline and play sounds.</p>
   <button id="startButton">Start Timeline</button>
+  <button id="stopButton">Stop Timeline</button>
   <script src="pluck.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       const startButton = document.getElementById('startButton')
+      const stopButton = document.getElementById('stopButton')
+      let timeline
       startButton.addEventListener('click', async () => {
-        const timeline = new window.Pluck.Timeline()
+        timeline = new window.Pluck.Timeline()
         await timeline.start()
+
+        // start the timer before new sounds are created and scheduled for more accurate timing
+        timeline.startTimer(14, () => {
+          console.log("Timer fired at 14 seconds", timeline.currentTime)
+        })
 
         // Create and initialize sounds in various and fun ways
 
@@ -74,6 +82,9 @@
         })
 
         console.log("Timeline started")
+      })
+      stopButton.addEventListener('click', () => {
+        timeline.stop()
       })
     })
   </script>

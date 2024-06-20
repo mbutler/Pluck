@@ -10,6 +10,7 @@ class Timeline {
       currentTime: 0,
       isPlaying: false,
       soundQueue: new PriorityQueue(),
+      intervalIDs: {},
       events: {
         onStart: [],
         onStop: [],
@@ -53,6 +54,15 @@ class Timeline {
     return timelineProperties.get(this).soundQueue
   }
 
+  get intervalIDs() {
+    return timelineProperties.get(this).intervalIDs
+  }
+
+  set intervalIDs(value) {
+    const properties = timelineProperties.get(this)
+    properties.intervalIDs = value
+  }
+
   get events() {
     return timelineProperties.get(this).events
   }
@@ -80,6 +90,22 @@ class Timeline {
     return this.currentTime + seconds
   }
 
+  startTimer(intervalInSeconds, callback) {
+    const intervalID = setInterval(() => {
+      callback()
+    }, intervalInSeconds * 1000)
+    this.intervalIDs = { ...this.intervalIDs, [intervalInSeconds]: intervalID }
+  }
+
+  stopTimer(intervalInSeconds) {
+    const intervalID = this.intervalIDs[intervalInSeconds]
+    if (intervalID) {
+      clearInterval(intervalID)
+      const { [intervalInSeconds]: _, ...remainingIntervalIDs } = this.intervalIDs
+      this.intervalIDs = remainingIntervalIDs
+    }
+  }
+
   triggerEvent(event, sound, time) {
     const properties = timelineProperties.get(this)
     if (properties.events[event]) {
@@ -92,7 +118,7 @@ class Timeline {
     console.log('Audio context initialized', this.context)
     this.isPlaying = true
     this.triggerEvent('onStart')
-    await this.context.resume()  // Ensure the audio context is running
+    await this.context.resume()
     this.loop()
   }
 
@@ -122,6 +148,22 @@ class Timeline {
   }
 
   stop() {
+    Object.keys(this.intervalIDs).forEach(intervalInSeconds => {
+      this.stopTimer(Number(intervalInSeconds))
+    })
+  
+    while (!this.soundQueue.isEmpty()) {
+      const node = this.soundQueue.dequeue()
+      const { sound } = node
+      if (sound && sound.isPlaying) {
+        sound.stop()
+      }
+    }
+  
+    if (this.context && this.context.state !== 'closed') {
+      this.context.close()
+    }
+  
     this.isPlaying = false
     this.triggerEvent('onStop')
   }

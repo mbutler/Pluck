@@ -369,6 +369,7 @@ class Timeline {
       currentTime: 0,
       isPlaying: false,
       soundQueue: new PriorityQueue_default,
+      intervalIDs: {},
       events: {
         onStart: [],
         onStop: [],
@@ -404,6 +405,13 @@ class Timeline {
   get soundQueue() {
     return timelineProperties.get(this).soundQueue;
   }
+  get intervalIDs() {
+    return timelineProperties.get(this).intervalIDs;
+  }
+  set intervalIDs(value) {
+    const properties = timelineProperties.get(this);
+    properties.intervalIDs = value;
+  }
   get events() {
     return timelineProperties.get(this).events;
   }
@@ -425,6 +433,20 @@ class Timeline {
   }
   future(seconds) {
     return this.currentTime + seconds;
+  }
+  startTimer(intervalInSeconds, callback) {
+    const intervalID = setInterval(() => {
+      callback();
+    }, intervalInSeconds * 1000);
+    this.intervalIDs = { ...this.intervalIDs, [intervalInSeconds]: intervalID };
+  }
+  stopTimer(intervalInSeconds) {
+    const intervalID = this.intervalIDs[intervalInSeconds];
+    if (intervalID) {
+      clearInterval(intervalID);
+      const { [intervalInSeconds]: _, ...remainingIntervalIDs } = this.intervalIDs;
+      this.intervalIDs = remainingIntervalIDs;
+    }
   }
   triggerEvent(event, sound, time) {
     const properties = timelineProperties.get(this);
@@ -462,6 +484,19 @@ class Timeline {
     requestAnimationFrame(() => this.loop());
   }
   stop() {
+    Object.keys(this.intervalIDs).forEach((intervalInSeconds) => {
+      this.stopTimer(Number(intervalInSeconds));
+    });
+    while (!this.soundQueue.isEmpty()) {
+      const node = this.soundQueue.dequeue();
+      const { sound } = node;
+      if (sound && sound.isPlaying) {
+        sound.stop();
+      }
+    }
+    if (this.context && this.context.state !== "closed") {
+      this.context.close();
+    }
     this.isPlaying = false;
     this.triggerEvent("onStop");
   }
