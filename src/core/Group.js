@@ -14,8 +14,12 @@ class Group {
       return
     }
 
-    sounds.forEach(sound => { sound.disconnect(sound.gainNode) })
+    console.log("Creating new group with sounds:", sounds)
+    
+    sounds.forEach(sound => { sound.source.disconnect(sound.gainNode)})
     const gainNode = context.createGain()
+    sounds.forEach(sound => { sound.connect(gainNode) })
+    gainNode.connect(context.destination)
     
     const properties = {
       context: context,

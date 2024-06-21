@@ -224,10 +224,14 @@ class Sound {
       console.error('No audio buffer or source available to play')
       return
     }
-
+    
+    /* 
+    // This will create a new source for each sound inside a Group play
+    // However, it is required to reuse the source. You decide.
     if (this.audioBuffer) {
       this.createSourceFromBuffer()
     }
+    */
 
     if (this.mediaStream) {
       console.log('Microphone input started')

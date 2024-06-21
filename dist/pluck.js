@@ -193,9 +193,6 @@ class Sound {
       console.error("No audio buffer or source available to play");
       return;
     }
-    if (this.audioBuffer) {
-      this.createSourceFromBuffer();
-    }
     if (this.mediaStream) {
       console.log("Microphone input started");
       return;
@@ -544,10 +541,15 @@ class Group {
       console.error("Sounds with mismatched audio contexts:", invalidSounds);
       return;
     }
+    console.log("Creating new group with sounds:", sounds);
     sounds.forEach((sound) => {
-      sound.disconnect(sound.gainNode);
+      sound.source.disconnect(sound.gainNode);
     });
     const gainNode2 = context.createGain();
+    sounds.forEach((sound) => {
+      sound.connect(gainNode2);
+    });
+    gainNode2.connect(context.destination);
     const properties = {
       context,
       gainNode: gainNode2,

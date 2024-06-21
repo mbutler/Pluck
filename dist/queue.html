@@ -39,6 +39,8 @@
      
         // make sure sounds are initialized before scheduling or grouping them
         const group = new window.Pluck.Group(timeline.context, [sound1, sound2, sound3])
+
+        // play 
         group.play()
 
         // set a setTimer and then change the volume of the group
