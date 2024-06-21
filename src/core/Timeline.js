@@ -67,7 +67,6 @@ class Timeline {
     return timelineProperties.get(this).events
   }
 
-  // Methods to manage event listeners
   on(event, listener) {
     const properties = timelineProperties.get(this)
     if (properties.events[event]) {

@@ -33,19 +33,31 @@
         const sound2 = new window.Pluck.Sound({ file: 'sound2.mp3', context: timeline.context})
         const sound3 = new window.Pluck.Sound({ file: 'snd.mp3', context: timeline.context })
 
-        // use the Timeline to create and schedule a Sound, passing in options
-        const sound4 = timeline.addSound( 'snd.mp3', 15, { volume: 0.69 })
-
-        const sound5 = timeline.addSound( 'snd.mp3', timeline.future(30))
-
-
         await sound1.initialized
         await sound2.initialized
         await sound3.initialized
+     
+        // make sure sounds are initialized before scheduling or grouping them
+        const group = new window.Pluck.Group(timeline.context, [sound1, sound2, sound3])
+        group.play()
+
+        // set a setTimer and then change the volume of the group
+        // this doesn't work yet
+        setTimeout(() => {
+          group.mute()
+          console.log("Group muted", group)
+        }, 20 * 1000)
+
+        // use the Timeline to create and schedule a Sound, passing in options
+        const sound4 = timeline.addSound( 'snd.mp3', 15, { volume: 0.69 })
         await sound4.initialized
 
-        console.log("Sounds initialized")
+        const sound5 = timeline.addSound( 'snd.mp3', timeline.future(30))
 
+        
+
+        console.log("Sounds initialized")
+        /*
         // Schedule sound1 to play at 1 second
         timeline.scheduleSound(sound1, 1)
         console.log("Scheduled sound1 to play at 1 second")
@@ -70,7 +82,7 @@
         timeline.on('onSoundScheduled', (sound, time) => {
           `Sound ${sound.file} scheduled to play at ${time} seconds}`
         })
-
+        */
         timeline.on('onSoundPlayed', (sound, time) => {
           console.log(`ALERT::: Sound ${sound.fileName} played at ${time} seconds}`)
         })
@@ -84,6 +96,7 @@
 
         console.log("Timeline started")
       })
+        
       stopButton.addEventListener('click', () => {
         timeline.stop()
       })

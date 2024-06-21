@@ -544,6 +544,9 @@ class Group {
       console.error("Sounds with mismatched audio contexts:", invalidSounds);
       return;
     }
+    sounds.forEach((sound) => {
+      sound.disconnect(sound.gainNode);
+    });
     const gainNode2 = context.createGain();
     const properties = {
       context,
@@ -553,8 +556,6 @@ class Group {
       muted: false,
       previousVolume: 1
     };
-    properties.sounds.forEach((sound) => sound.connect(gainNode2));
-    gainNode2.connect(context.destination);
     groupProperties.set(this, properties);
   }
   get context() {
