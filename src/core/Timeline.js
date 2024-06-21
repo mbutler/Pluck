@@ -89,14 +89,14 @@ class Timeline {
     return this.currentTime + seconds
   }
 
-  startTimer(intervalInSeconds, callback) {
+  startInterval(intervalInSeconds, callback) {
     const intervalID = setInterval(() => {
       callback()
     }, intervalInSeconds * 1000)
     this.intervalIDs = { ...this.intervalIDs, [intervalInSeconds]: intervalID }
   }
 
-  stopTimer(intervalInSeconds) {
+  stopInterval(intervalInSeconds) {
     const intervalID = this.intervalIDs[intervalInSeconds]
     if (intervalID) {
       clearInterval(intervalID)
@@ -134,8 +134,8 @@ class Timeline {
       if (sound) {
         console.log('Playing sound:', sound)
         try {
-          this.triggerEvent('onSoundPlayed', sound, this.currentTime)
           await sound.play()
+          this.triggerEvent('onSoundPlayed', sound, this.currentTime)
         } catch (error) {
           console.error("Error playing sound:", error)
         }

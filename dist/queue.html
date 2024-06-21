@@ -22,8 +22,8 @@
         let future = timeline.future()
 
         // start the timer before new sounds are created and scheduled for more accurate timing
-        timeline.startTimer(14, () => {
-          console.log("Timer fired at 14 seconds", timeline.currentTime)
+        timeline.startInterval(14, () => {
+          console.log("Another 14 seconds.", timeline.currentTime)
         })
 
         // Create and initialize sounds in various and fun ways
