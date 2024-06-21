@@ -1,33 +1,32 @@
 import Sound from './Sound.js'
-
-const groupProperties = new WeakMap()
+var groupProperties = new WeakMap;
 
 class Group {
-  constructor(sounds = []) {
-    if (sounds.length === 0) {
-      throw new Error('Group requires at least one sound')
+  constructor(context, sounds) {
+    if (!context) {
+      console.error('No audio context provided to Group')
+      return
     }
 
-    const context = sounds[0].context // Use the context of the first sound
+    const invalidSounds = sounds.filter(sound => sound.context !== context)
+    if (invalidSounds.length) {
+      console.error('Sounds with mismatched audio contexts:', invalidSounds)
+      return
+    }
     const gainNode = context.createGain()
+    
     const properties = {
-      context,
+      context: context,
       gainNode,
-      sounds: [],
+      sounds: sounds.filter((sound) => sound instanceof Sound) || [],
+      volume: 1,
       muted: false,
+      previousVolume: 1,
     }
-
-    groupProperties.set(this, properties)
-
-    sounds.forEach((sound) => {
-      if (sound instanceof Sound) {
-        this.addSound(sound)
-      } else {
-        console.error('Sound is not an instance of Sound class:', sound)
-      }
-    })
-
+    
+    properties.sounds.forEach((sound) => sound.connect(gainNode))
     gainNode.connect(context.destination)
+    groupProperties.set(this, properties)    
   }
 
   get context() {
@@ -42,15 +41,37 @@ class Group {
     return groupProperties.get(this).sounds
   }
 
+  get volume() {
+    return groupProperties.get(this).gainNode.gain.value
+  }
+
+  set volume(value) {
+    groupProperties.get(this).gainNode.gain.value = value
+  }
+
+  get muted() {
+    return groupProperties.get(this).muted
+  }
+
+  set muted(value) {
+    groupProperties.get(this).muted = value
+  }
+
+  get previousVolume() {
+    return groupProperties.get(this).previousVolume
+  }
+
+  set previousVolume(value) {
+    groupProperties.get(this).previousVolume = value
+  }
+
   async play() {
-    const properties = groupProperties.get(this)
-    const promises = properties.sounds.map(async (sound) => {
+    const promises = this.sounds.map(async (sound) => {
       if (!sound.isPlaying) {
         try {
           await sound.play()
-          sound.isPlaying = true
         } catch (error) {
-          console.error('Error playing sound:', error)
+          console.error("Error playing sound:", error)
         }
       }
     })
@@ -58,68 +79,53 @@ class Group {
   }
 
   async stop() {
-    const properties = groupProperties.get(this)
-    const promises = properties.sounds.map(async (sound) => {
+    const promises = this.sounds.map(async (sound) => {
       if (sound.isPlaying) {
         sound.stop()
-        sound.isPlaying = false
       }
     })
     await Promise.all(promises)
   }
 
-  async addSound(sound) {
-    if (!(sound instanceof Sound)) {
-      console.error('The sound is not an instance of Sound class:', sound)
+  addSounds(sounds) {
+    if (!Array.isArray(sounds)) {
+      console.error("Not an array of sounds")
       return
     }
-
-    const properties = groupProperties.get(this)
-    if (sound.context !== properties.context) {
-      console.error('Cannot add sound to group: mismatched audio contexts')
-      return
-    }
-    properties.sounds.push(sound)
-    sound.connect(properties.gainNode)
-    console.log('Added and connected new sound to group gain node:', sound)
+  
+    sounds.forEach((sound) => {
+      if (!(sound instanceof Sound)) {
+        console.error("The sound is not an instance of Sound class:", sound)
+        return
+      }
+  
+      if (sound.context !== this.context) {
+        console.error("Cannot add sound to group: mismatched audio contexts", sound)
+        return
+      }
+  
+      this.sounds.push(sound)
+      sound.connect(this.gainNode)
+      console.log("Added and connected new sound to group gain node:", sound)
+    })
   }
+  
 
-  async removeSound(sound) {
-    const properties = groupProperties.get(this)
-    const index = properties.sounds.indexOf(sound)
+  removeSound(sound) {
+    const index = this.sounds.indexOf(sound)
     if (index === -1) {
-      console.warn('The sound is not in the group')
+      console.warn("The sound is not in the group")
       return
     }
-
-    sound.disconnect(properties.gainNode)
-    properties.sounds.splice(index, 1)
-    console.log('Removed and disconnected sound from group gain node:', sound)
-
-    // Disconnect gain node if no sounds left
-    if (properties.sounds.length === 0) {
-      properties.gainNode.disconnect(properties.context.destination)
+    sound.disconnect(this.gainNode)
+    this.sounds.splice(index, 1)
+    console.log("Removed and disconnected sound from group gain node:", sound)
+    if (this.sounds.length === 0) {
+      this.gainNode.disconnect(this.context.destination)
     }
-  }
-
-  set volume(value) {
-    if (value < 0 || value > 1) {
-      console.warn('Volume value must be between 0 and 1.')
-      return
-    }
-    groupProperties.get(this).gainNode.gain.value = value
-  }
-
-  get volume() {
-    return groupProperties.get(this).gainNode.gain.value
   }
 
   setVolumeGradually(value, duration = 1) {
-    if (value < 0 || value > 1) {
-      console.warn('Volume value must be between 0 and 1.')
-      return
-    }
-    const gainNode = groupProperties.get(this).gainNode
     const currentTime = this.context.currentTime
     gainNode.gain.setValueAtTime(gainNode.gain.value, currentTime)
     gainNode.gain.linearRampToValueAtTime(value, currentTime + duration)
@@ -127,21 +133,19 @@ class Group {
   }
 
   mute() {
-    const properties = groupProperties.get(this)
-    if (!properties.muted) {
-      properties.previousVolume = this.volume
+    if (!this.muted) {
+      this.previousVolume = this.volume
       this.volume = 0
-      properties.muted = true
-      console.log('Group muted')
+      this.muted = true
+      console.log("Group muted")
     }
   }
 
   unmute() {
-    const properties = groupProperties.get(this)
-    if (properties.muted) {
-      this.volume = properties.previousVolume
-      properties.muted = false
-      console.log('Group unmuted')
+    if (this.muted) {
+      this.volume = this.previousVolume
+      this.muted = false
+      console.log("Group unmuted")
     }
   }
 }

@@ -40,7 +40,7 @@ async function runTests() {
         const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context: context });
         await sound1.initialized;
         await sound2.initialized;
-        const group = new window.Pluck.Group([sound1, sound2]);
+        const group = new window.Pluck.Group(context, [sound1, sound2]);
         await group.play();
         return sound1.isPlaying && sound2.isPlaying;
       }`,
@@ -126,6 +126,101 @@ async function runTests() {
       }`,
       expected: true,
     },
+    {
+      name: 'Test Group Initialization',
+      script: `async () => {
+        const context = new window.AudioContext();
+        const sound = new window.Pluck.Sound({ context });
+        await sound.initialized;
+        const group = new window.Pluck.Group(context, [sound]);
+        return group.context === context && group.sounds.length === 1;
+      }`,
+      expected: true,
+    },
+    {
+      name: 'Test Group Add Sound',
+      script: `async () => {
+        const context = new window.AudioContext();
+        const sound1 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
+        const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
+        await sound1.initialized;
+        await sound2.initialized;
+        const group = new window.Pluck.Group(context, [sound1]);
+        group.addSounds([sound2]);
+        return group.sounds.length === 2 && group.sounds.includes(sound2);
+      }`,
+      expected: true,
+    },
+    {
+      name: 'Test Group Remove Sound',
+      script: `async () => {
+        const context = new window.AudioContext();
+        const sound1 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
+        const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
+        await sound1.initialized;
+        await sound2.initialized;
+        const group = new window.Pluck.Group(context, [sound1, sound2]);
+        group.removeSound(sound2);
+        return group.sounds.length === 1 && !group.sounds.includes(sound2);
+      }`,
+      expected: true,
+    },
+    {
+      name: 'Test Group Volume Control',
+      script: `async () => {
+        const context = new window.AudioContext();
+        const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
+        await sound.initialized;
+        const group = new window.Pluck.Group(context, [sound]);
+        group.volume = 0.5;
+        return group.volume === 0.5;
+      }`,
+      expected: true,
+    },
+    {
+      name: 'Test Group Mute/Unmute',
+      script: `async () => {
+        const context = new window.AudioContext();
+        const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
+        await sound.initialized;
+        const group = new window.Pluck.Group(context, [sound]);
+        group.mute();
+        const isMuted = group.volume === 0;
+        group.unmute();
+        const isUnmuted = group.volume === 1;
+        return isMuted && isUnmuted;
+      }`,
+      expected: true,
+    },
+    {
+      name: 'Test Group Play All Sounds',
+      script: `async () => {
+        const context = new window.AudioContext();
+        const sound1 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
+        const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
+        await sound1.initialized;
+        await sound2.initialized;
+        const group = new window.Pluck.Group(context, [sound1, sound2]);
+        await group.play();
+        return sound1.isPlaying && sound2.isPlaying;
+      }`,
+      expected: true,
+    },
+    {
+      name: 'Test Group Stop All Sounds',
+      script: `async () => {
+        const context = new window.AudioContext();
+        const sound1 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
+        const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
+        await sound1.initialized;
+        await sound2.initialized;
+        const group = new window.Pluck.Group(context, [sound1, sound2]);
+        await group.play();
+        group.stop();
+        return !sound1.isPlaying && !sound2.isPlaying;
+      }`,
+      expected: true,
+    }
   ];
   
 

@@ -4,7 +4,7 @@ var soundProperties = new WeakMap;
 class Sound {
   constructor(options = {}) {
     const audioContext = options.context || new (window.AudioContext || window.webkitAudioContext);
-    const gainNode = audioContext.createGain();
+    const gainNode2 = audioContext.createGain();
     const properties = {
       fileName: options.file || null,
       context: audioContext,
@@ -15,7 +15,7 @@ class Sound {
       attack: options.attack || 0.04,
       release: options.release || 0.04,
       offset: options.offset || 0,
-      gainNode,
+      gainNode: gainNode2,
       mediaStream: options.input || null,
       clearBuffer: options.clearBuffer || false,
       isPlaying: false
@@ -534,27 +534,28 @@ var Timeline_default = Timeline;
 var groupProperties = new WeakMap;
 
 class Group {
-  constructor(sounds = []) {
-    if (sounds.length === 0) {
-      throw new Error("Group requires at least one sound");
+  constructor(context, sounds) {
+    if (!context) {
+      console.error("No audio context provided to Group");
+      return;
     }
-    const context = sounds[0].context;
-    const gainNode = context.createGain();
+    const invalidSounds = sounds.filter((sound) => sound.context !== context);
+    if (invalidSounds.length) {
+      console.error("Sounds with mismatched audio contexts:", invalidSounds);
+      return;
+    }
+    const gainNode2 = context.createGain();
     const properties = {
       context,
-      gainNode,
-      sounds: [],
-      muted: false
+      gainNode: gainNode2,
+      sounds: sounds.filter((sound) => sound instanceof Sound_default) || [],
+      volume: 1,
+      muted: false,
+      previousVolume: 1
     };
+    properties.sounds.forEach((sound) => sound.connect(gainNode2));
+    gainNode2.connect(context.destination);
     groupProperties.set(this, properties);
-    sounds.forEach((sound) => {
-      if (sound instanceof Sound_default) {
-        this.addSound(sound);
-      } else {
-        console.error("Sound is not an instance of Sound class:", sound);
-      }
-    });
-    gainNode.connect(context.destination);
   }
   get context() {
     return groupProperties.get(this).context;
@@ -565,13 +566,29 @@ class Group {
   get sounds() {
     return groupProperties.get(this).sounds;
   }
+  get volume() {
+    return groupProperties.get(this).gainNode.gain.value;
+  }
+  set volume(value) {
+    groupProperties.get(this).gainNode.gain.value = value;
+  }
+  get muted() {
+    return groupProperties.get(this).muted;
+  }
+  set muted(value) {
+    groupProperties.get(this).muted = value;
+  }
+  get previousVolume() {
+    return groupProperties.get(this).previousVolume;
+  }
+  set previousVolume(value) {
+    groupProperties.get(this).previousVolume = value;
+  }
   async play() {
-    const properties = groupProperties.get(this);
-    const promises = properties.sounds.map(async (sound) => {
+    const promises = this.sounds.map(async (sound) => {
       if (!sound.isPlaying) {
         try {
           await sound.play();
-          sound.isPlaying = true;
         } catch (error) {
           console.error("Error playing sound:", error);
         }
@@ -580,78 +597,63 @@ class Group {
     await Promise.all(promises);
   }
   async stop() {
-    const properties = groupProperties.get(this);
-    const promises = properties.sounds.map(async (sound) => {
+    const promises = this.sounds.map(async (sound) => {
       if (sound.isPlaying) {
         sound.stop();
-        sound.isPlaying = false;
       }
     });
     await Promise.all(promises);
   }
-  async addSound(sound) {
-    if (!(sound instanceof Sound_default)) {
-      console.error("The sound is not an instance of Sound class:", sound);
+  addSounds(sounds) {
+    if (!Array.isArray(sounds)) {
+      console.error("Not an array of sounds");
       return;
     }
-    const properties = groupProperties.get(this);
-    if (sound.context !== properties.context) {
-      console.error("Cannot add sound to group: mismatched audio contexts");
-      return;
-    }
-    properties.sounds.push(sound);
-    sound.connect(properties.gainNode);
-    console.log("Added and connected new sound to group gain node:", sound);
+    sounds.forEach((sound) => {
+      if (!(sound instanceof Sound_default)) {
+        console.error("The sound is not an instance of Sound class:", sound);
+        return;
+      }
+      if (sound.context !== this.context) {
+        console.error("Cannot add sound to group: mismatched audio contexts", sound);
+        return;
+      }
+      this.sounds.push(sound);
+      sound.connect(this.gainNode);
+      console.log("Added and connected new sound to group gain node:", sound);
+    });
   }
-  async removeSound(sound) {
-    const properties = groupProperties.get(this);
-    const index = properties.sounds.indexOf(sound);
+  removeSound(sound) {
+    const index = this.sounds.indexOf(sound);
     if (index === -1) {
       console.warn("The sound is not in the group");
       return;
     }
-    sound.disconnect(properties.gainNode);
-    properties.sounds.splice(index, 1);
+    sound.disconnect(this.gainNode);
+    this.sounds.splice(index, 1);
     console.log("Removed and disconnected sound from group gain node:", sound);
-    if (properties.sounds.length === 0) {
-      properties.gainNode.disconnect(properties.context.destination);
+    if (this.sounds.length === 0) {
+      this.gainNode.disconnect(this.context.destination);
     }
-  }
-  set volume(value) {
-    if (value < 0 || value > 1) {
-      console.warn("Volume value must be between 0 and 1.");
-      return;
-    }
-    groupProperties.get(this).gainNode.gain.value = value;
-  }
-  get volume() {
-    return groupProperties.get(this).gainNode.gain.value;
   }
   setVolumeGradually(value, duration = 1) {
-    if (value < 0 || value > 1) {
-      console.warn("Volume value must be between 0 and 1.");
-      return;
-    }
-    const gainNode = groupProperties.get(this).gainNode;
     const currentTime = this.context.currentTime;
     gainNode.gain.setValueAtTime(gainNode.gain.value, currentTime);
     gainNode.gain.linearRampToValueAtTime(value, currentTime + duration);
     console.log(`Volume set to ${value} over ${duration} seconds`);
   }
   mute() {
-    const properties = groupProperties.get(this);
-    if (!properties.muted) {
-      properties.previousVolume = this.volume;
+    if (!this.muted) {
+      this.previousVolume = this.volume;
       this.volume = 0;
-      properties.muted = true;
+      this.muted = true;
       console.log("Group muted");
     }
   }
   unmute() {
-    const properties = groupProperties.get(this);
-    if (properties.muted) {
-      this.volume = properties.previousVolume;
-      properties.muted = false;
+    if (this.muted) {
+      this.volume = this.previousVolume;
+      this.muted = false;
       console.log("Group unmuted");
     }
   }

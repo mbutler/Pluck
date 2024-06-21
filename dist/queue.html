@@ -19,6 +19,7 @@
       startButton.addEventListener('click', async () => {
         timeline = new window.Pluck.Timeline()
         await timeline.start()
+        let future = timeline.future()
 
         // start the timer before new sounds are created and scheduled for more accurate timing
         timeline.startTimer(14, () => {
