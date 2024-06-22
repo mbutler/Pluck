@@ -38,14 +38,15 @@
         await sound3.initialized
      
         // make sure sounds are initialized before scheduling or grouping them
-        const group = new window.Pluck.Group(timeline.context, [sound1, sound2, sound3])
+        const group = new window.Pluck.Group(timeline.context)
+        group.addSounds([sound1, sound2, sound3])
 
         // play 
         group.play()
 
         /////////
         // cant do this because it's being used in the Group
-        sound1.play() // just don't do this I guess
+        // sound1.play() // just don't do this I guess
         /////////
 
         // set a setTimer and then change the volume of the group

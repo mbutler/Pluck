@@ -88,7 +88,8 @@
       const sound1 = new Pluck.Sound({ wave: { type: 'sine', frequency: 440 }, context: timeline.context });
       const sound2 = new Pluck.Sound({ wave: { type: 'square', frequency: 880 }, context: timeline.context });
       await Promise.all([sound1.initialized, sound2.initialized]);
-      group = new Pluck.Group([sound1, sound2]);
+      group = new Pluck.Group(timeline.context);
+      group.addSounds([sound1, sound2]);
       await group.play();
       console.log('Playing group sounds');
     });
