@@ -224,10 +224,10 @@ class Sound {
       console.error('No audio buffer or source available to play')
       return
     }
-    
+
     /* 
-    // This will create a new source for each sound inside a Group play
-    // However, it is required to reuse the source. You decide.
+    // This will create a new source for each sound and interfere with Group gainNode.
+    // However, it is required to play a sound again. You decide.
     if (this.audioBuffer) {
       this.createSourceFromBuffer()
     }

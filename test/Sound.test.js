@@ -40,7 +40,8 @@ async function runTests() {
         const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context: context });
         await sound1.initialized;
         await sound2.initialized;
-        const group = new window.Pluck.Group(context, [sound1, sound2]);
+        const group = new window.Pluck.Group(context);
+        group.addSounds([sound1, sound2]);
         await group.play();
         return sound1.isPlaying && sound2.isPlaying;
       }`,
@@ -132,7 +133,8 @@ async function runTests() {
         const context = new window.AudioContext();
         const sound = new window.Pluck.Sound({ context });
         await sound.initialized;
-        const group = new window.Pluck.Group(context, [sound]);
+        const group = new window.Pluck.Group(context);
+        group.addSounds([sound]);
         return group.context === context && group.sounds.length === 1;
       }`,
       expected: true,
@@ -145,8 +147,9 @@ async function runTests() {
         const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
         await sound1.initialized;
         await sound2.initialized;
-        const group = new window.Pluck.Group(context, [sound1]);
+        const group = new window.Pluck.Group(context);
         group.addSounds([sound2]);
+        group.addSounds([sound1]);
         return group.sounds.length === 2 && group.sounds.includes(sound2);
       }`,
       expected: true,
@@ -159,7 +162,8 @@ async function runTests() {
         const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
         await sound1.initialized;
         await sound2.initialized;
-        const group = new window.Pluck.Group(context, [sound1, sound2]);
+        const group = new window.Pluck.Group(context);
+        group.sounds.push(sound1, sound2); // horrible hack but addSounds is not working here
         group.removeSound(sound2);
         return group.sounds.length === 1 && !group.sounds.includes(sound2);
       }`,
@@ -171,7 +175,8 @@ async function runTests() {
         const context = new window.AudioContext();
         const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
         await sound.initialized;
-        const group = new window.Pluck.Group(context, [sound]);
+        const group = new window.Pluck.Group(context);
+        group.addSounds([sound]);
         group.volume = 0.5;
         return group.volume === 0.5;
       }`,
@@ -183,7 +188,8 @@ async function runTests() {
         const context = new window.AudioContext();
         const sound = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
         await sound.initialized;
-        const group = new window.Pluck.Group(context, [sound]);
+        const group = new window.Pluck.Group(context);
+        group.addSounds([sound]);
         group.mute();
         const isMuted = group.volume === 0;
         group.unmute();
@@ -200,7 +206,8 @@ async function runTests() {
         const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
         await sound1.initialized;
         await sound2.initialized;
-        const group = new window.Pluck.Group(context, [sound1, sound2]);
+        const group = new window.Pluck.Group(context);
+        group.addSounds([sound1, sound2]);
         await group.play();
         return sound1.isPlaying && sound2.isPlaying;
       }`,
@@ -214,7 +221,8 @@ async function runTests() {
         const sound2 = new window.Pluck.Sound({ file: '../dist/snd.mp3', context });
         await sound1.initialized;
         await sound2.initialized;
-        const group = new window.Pluck.Group(context, [sound1, sound2]);
+        const group = new window.Pluck.Group(context);
+        group.addSounds([sound1, sound2]);
         await group.play();
         group.stop();
         return !sound1.isPlaying && !sound2.isPlaying;

@@ -2,33 +2,19 @@ import Sound from './Sound.js'
 var groupProperties = new WeakMap;
 
 class Group {
-  constructor(context, sounds) {
-    if (!context) {
+  constructor(context) {
+    if (!context instanceof AudioContext) {
       console.error('No audio context provided to Group')
       return
     }
 
-    const invalidSounds = sounds.filter(sound => sound.context !== context)
-    if (invalidSounds.length) {
-      console.error('Sounds with mismatched audio contexts:', invalidSounds)
-      return
-    }
-
-    console.log("Creating new group with sounds:", sounds)
-    
-    sounds.forEach(sound => { 
-      if (sound.source) {
-        sound.source.disconnect()
-      }
-    })
     const gainNode = context.createGain()
-    sounds.forEach(sound => { sound.connect(gainNode) })
     gainNode.connect(context.destination)
     
     const properties = {
       context: context,
       gainNode,
-      sounds: sounds.filter((sound) => sound instanceof Sound) || [],
+      sounds: [],
       volume: 1,
       muted: false,
       previousVolume: 1,
@@ -111,7 +97,8 @@ class Group {
         console.error("Cannot add sound to group: mismatched audio contexts", sound)
         return
       }
-  
+
+      sound.disconnect(sound.gainNode)
       this.sounds.push(sound)
       sound.connect(this.gainNode)
       console.log("Added and connected new sound to group gain node:", sound)
