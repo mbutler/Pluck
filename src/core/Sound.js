@@ -18,6 +18,7 @@ class Sound {
       mediaStream: options.input || null,
       clearBuffer: options.clearBuffer || false,
       isPlaying: false,
+      isGrouped: false,
     }
     soundProperties.set(this, properties)
 
@@ -137,6 +138,15 @@ class Sound {
     properties.isPlaying = value
   }
 
+  get isGrouped() {
+    return soundProperties.get(this).isGrouped
+  }
+
+  set isGrouped(value) {
+    const properties = soundProperties.get(this)
+    properties.isGrouped = value
+  }
+
   async initSource(options) {
     if (options.file) {
       await this.loadFromFile(options.file)
@@ -213,40 +223,44 @@ class Sound {
     }
   }
 
-  async play() {
+  async play(fromGroup = false) {
+    if (this.isGrouped && !fromGroup) {
+        console.error('Cannot play a grouped sound directly')
+        return
+    }
+
     this.isPlaying = true
     await this.initialized
     if (this.context.state === 'suspended') {
-      await this.context.resume()
+        await this.context.resume()
     }
 
     if (!this.audioBuffer && !this.source) {
-      console.error('No audio buffer or source available to play')
-      return
+        console.error('No audio buffer or source available to play')
+        return
     }
 
-    /* 
-    // This will create a new source for each sound and interfere with Group gainNode.
-    // However, it is required to play a sound again. You decide.
-    if (this.audioBuffer) {
-      this.createSourceFromBuffer()
+    if (!this.isGrouped && this.audioBuffer) {
+        this.source = null
+        this.createSourceFromBuffer()
     }
-    */
 
     if (this.mediaStream) {
-      console.log('Microphone input started')
-      return
+        console.log('Microphone input started')
+        return
     }
-  
+
     if (this.source && this.source.start) {
-      this.applyAttack()
-      console.log('Starting source', this.source)
-      this.source.start(this.context.currentTime, this.offset)
+        this.applyAttack()
+        console.log('Starting source', this.source)
+        this.source.start(this.context.currentTime, this.offset)
     } else {
-      console.error('No source to play')
-      this.isPlaying = false
+        console.error('No source to play')
+        this.isPlaying = false
     }
-  }
+}
+
+
 
   stop() {
     this.isPlaying = false

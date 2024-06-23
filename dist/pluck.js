@@ -18,7 +18,8 @@ class Sound {
       gainNode: gainNode2,
       mediaStream: options.input || null,
       clearBuffer: options.clearBuffer || false,
-      isPlaying: false
+      isPlaying: false,
+      isGrouped: false
     };
     soundProperties.set(this, properties);
     this.initialized = this.initialize(options);
@@ -112,6 +113,13 @@ class Sound {
     const properties = soundProperties.get(this);
     properties.isPlaying = value;
   }
+  get isGrouped() {
+    return soundProperties.get(this).isGrouped;
+  }
+  set isGrouped(value) {
+    const properties = soundProperties.get(this);
+    properties.isGrouped = value;
+  }
   async initSource(options) {
     if (options.file) {
       await this.loadFromFile(options.file);
@@ -183,7 +191,11 @@ class Sound {
       console.error("No source to connect to gain node");
     }
   }
-  async play() {
+  async play(fromGroup = false) {
+    if (this.isGrouped && !fromGroup) {
+      console.error("Cannot play a grouped sound directly");
+      return;
+    }
     this.isPlaying = true;
     await this.initialized;
     if (this.context.state === "suspended") {
@@ -192,6 +204,10 @@ class Sound {
     if (!this.audioBuffer && !this.source) {
       console.error("No audio buffer or source available to play");
       return;
+    }
+    if (!this.isGrouped && this.audioBuffer) {
+      this.source = null;
+      this.createSourceFromBuffer();
     }
     if (this.mediaStream) {
       console.log("Microphone input started");
@@ -577,9 +593,10 @@ class Group {
   }
   async play() {
     const promises = this.sounds.map(async (sound) => {
+      sound.isGrouped = true;
       if (!sound.isPlaying) {
         try {
-          await sound.play();
+          await sound.play(true);
         } catch (error) {
           console.error("Error playing sound:", error);
         }
@@ -609,6 +626,7 @@ class Group {
         console.error("Cannot add sound to group: mismatched audio contexts", sound);
         return;
       }
+      sound.isGrouped = true;
       sound.disconnect(sound.gainNode);
       this.sounds.push(sound);
       sound.connect(this.gainNode);

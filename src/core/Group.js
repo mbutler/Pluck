@@ -61,9 +61,10 @@ class Group {
 
   async play() {
     const promises = this.sounds.map(async (sound) => {
+      sound.isGrouped = true
       if (!sound.isPlaying) {
         try {
-          await sound.play()
+          await sound.play(true)
         } catch (error) {
           console.error("Error playing sound:", error)
         }
@@ -98,6 +99,7 @@ class Group {
         return
       }
 
+      sound.isGrouped = true
       sound.disconnect(sound.gainNode)
       this.sounds.push(sound)
       sound.connect(this.gainNode)
