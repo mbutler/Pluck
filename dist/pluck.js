@@ -205,7 +205,8 @@ class Sound {
       console.error("No audio buffer or source available to play");
       return;
     }
-    if (!this.isGrouped && this.audioBuffer) {
+    if (!this.isGrouped && this.audioBuffer && !fromGroup) {
+      console.log("===Playing sound from buffer===", this.fileName, this.isGrouped, fromGroup);
       this.source = null;
       this.createSourceFromBuffer();
     }
@@ -593,7 +594,6 @@ class Group {
   }
   async play() {
     const promises = this.sounds.map(async (sound) => {
-      sound.isGrouped = true;
       if (!sound.isPlaying) {
         try {
           await sound.play(true);

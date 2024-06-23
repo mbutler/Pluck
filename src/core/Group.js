@@ -61,7 +61,6 @@ class Group {
 
   async play() {
     const promises = this.sounds.map(async (sound) => {
-      sound.isGrouped = true
       if (!sound.isPlaying) {
         try {
           await sound.play(true)

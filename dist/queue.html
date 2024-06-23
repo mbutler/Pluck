@@ -33,6 +33,7 @@
         const sound1 = new Pluck.Sound({ file: 'sound1.mp3', context: timeline.context, offset: 12})
         const sound2 = new Pluck.Sound({ file: 'sound2.mp3', context: timeline.context})
         const sound3 = new Pluck.Sound({ file: 'snd.mp3', context: timeline.context })
+        const sound4 = new Pluck.Sound({ file: 'snd.mp3', context: timeline.context })
 
         await sound1.initialized
         await sound2.initialized
@@ -43,11 +44,15 @@
         group.addSounds([sound1, sound2, sound3])
 
         // play 
-        group.play()
+        await group.play()
 
         
-        // this will gracefully error and not work
+        // this runs before the group adds the sounds above
+        // this will error out because sound1 is already in a group
         sound1.play()
+
+        // this will play fine because sound4 is not in a group
+        sound4.play()
 
         // set a timer and then change the volume of the group
         setTimeout(() => {
