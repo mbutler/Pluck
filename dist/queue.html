@@ -13,13 +13,14 @@
   <script src="pluck.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
+
       const startButton = document.getElementById('startButton')
       const stopButton = document.getElementById('stopButton')
-      let timeline
+      const timeline = new Pluck.Timeline()
+
       startButton.addEventListener('click', async () => {
-        timeline = new window.Pluck.Timeline()
+        
         await timeline.start()
-        let future = timeline.future()
 
         // start the timer before new sounds are created and scheduled for more accurate timing
         timeline.startInterval(14, () => {
@@ -29,40 +30,36 @@
         // Create and initialize sounds in various and fun ways
 
         // create a Pluck Sound directly by passing in options
-        const sound1 = new window.Pluck.Sound({ file: 'sound1.mp3', context: timeline.context, offset: 12})
-        const sound2 = new window.Pluck.Sound({ file: 'sound2.mp3', context: timeline.context})
-        const sound3 = new window.Pluck.Sound({ file: 'snd.mp3', context: timeline.context })
+        const sound1 = new Pluck.Sound({ file: 'sound1.mp3', context: timeline.context, offset: 12})
+        const sound2 = new Pluck.Sound({ file: 'sound2.mp3', context: timeline.context})
+        const sound3 = new Pluck.Sound({ file: 'snd.mp3', context: timeline.context })
 
         await sound1.initialized
         await sound2.initialized
         await sound3.initialized
      
         // make sure sounds are initialized before scheduling or grouping them
-        const group = new window.Pluck.Group(timeline.context)
+        const group = new Pluck.Group(timeline.context)
         group.addSounds([sound1, sound2, sound3])
 
         // play 
         group.play()
 
+
         /////////
         // cant do this because it's being used in the Group
-        // sound1.play() // just don't do this I guess
+        // sound1.play() // just don't do this I guess. keep track of if it's in a group or not?
         /////////
 
-        // set a setTimer and then change the volume of the group
-        // this doesn't work yet
+        // set a timer and then change the volume of the group
         setTimeout(() => {
           group.mute()
           console.log("Group muted", group)
         }, 20 * 1000)
 
         // use the Timeline to create and schedule a Sound, passing in options
-        const sound4 = timeline.addSound( 'snd.mp3', 15, { volume: 0.69 })
-        await sound4.initialized
-
-        const sound5 = timeline.addSound( 'snd.mp3', timeline.future(30))
-
-        
+        timeline.addSound( 'snd.mp3', 15, { volume: 0.69 })
+        timeline.addSound( 'snd.mp3', timeline.future(30))        
 
         console.log("Sounds initialized")
         /*
