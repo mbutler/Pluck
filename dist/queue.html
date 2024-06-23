@@ -38,6 +38,7 @@
         await sound1.initialized
         await sound2.initialized
         await sound3.initialized
+        await sound4.initialized
      
         // make sure sounds are initialized before scheduling or grouping them
         const group = new Pluck.Group(timeline.context)
@@ -53,10 +54,12 @@
 
         // this will play fine because sound4 is not in a group
         sound4.play()
+        timeline.playNow(sound4)
 
         // set a timer and then change the volume of the group
         setTimeout(() => {
           group.mute()
+          sound4.play() // this works fine
           console.log("Group muted", group)
         }, 20 * 1000)
 

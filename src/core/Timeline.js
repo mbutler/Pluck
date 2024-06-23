@@ -148,7 +148,7 @@ class Timeline {
 
   stop() {
     Object.keys(this.intervalIDs).forEach(intervalInSeconds => {
-      this.stopTimer(Number(intervalInSeconds))
+      this.stopInterval(Number(intervalInSeconds))
     })
   
     while (!this.soundQueue.isEmpty()) {
