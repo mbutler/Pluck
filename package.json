@@ -6,9 +6,6 @@
     "documentation": "^14.0.3",
     "puppeteer-core": "^22.11.2"
   },
-  "peerDependencies": {
-    "typescript": "^5.0.0"
-  },
   "scripts": {
     "build": "bun build --minify src/index.js --outfile ./dist/pluck.min.js",
     "start": "bun build --minify src/index.js --watch --outfile ./dist/pluck.min.js",
