@@ -55,7 +55,7 @@
 
         
         // this runs before the group adds the sounds above
-        // this will error out because sound1 is already in a group
+        // this will give a warning because sound1 is already in a group
         sound1.play()
 
         // this will play fine because sound4 is not in a group
@@ -70,29 +70,29 @@
         }, 20 * 1000)
 
         // use the Timeline to create and schedule a Sound, passing in options
-        timeline.addSound( 'snd.mp3', 15, { volume: 0.69 })
-        timeline.addSound( 'snd.mp3', timeline.future(30))        
+        timeline.addSound( 'snd.mp3', 15, { context: timeline.context, volume: 0.69 })
+        timeline.addSound( 'snd.mp3', timeline.future(30), { context: timeline.context})        
 
         console.log("Sounds initialized")
         
         // Schedule sound1 to play at 1 second
-        timeline.scheduleSound(sound1, 1)
-        console.log("Scheduled sound1 to play at 1 second")
+        //timeline.scheduleSound(sound1, 1)
+        //console.log("Scheduled sound1 to play at 1 second")
 
         // Schedule sound2 to play at 3 seconds
-        timeline.scheduleSound(sound2, 3)
-        console.log("Scheduled sound2 to play at 3 seconds")
+        //timeline.scheduleSound(sound2, 3)
+        //console.log("Scheduled sound2 to play at 3 seconds")
 
         // Schedule sound3 to play at 5 seconds
-        timeline.scheduleSound(sound3, timeline.currentTime + 15)
-        console.log("Scheduled sound3 to play at 15 seconds in the future")
+        //timeline.scheduleSound(sound3, timeline.currentTime + 15)
+        //console.log("Scheduled sound3 to play at 15 seconds in the future")
 
         // Reschedule sound2 to play at 25 seconds
-        timeline.rescheduleSound(sound3, 25)
-        console.log("Rescheduled sound3 to play at 25 seconds")
+        //timeline.rescheduleSound(sound3, 25)
+        //console.log("Rescheduled sound3 to play at 25 seconds")
 
         // Play sound1 immediately
-        timeline.playNow(sound1)
+        //timeline.playNow(sound1)
         console.log("Playing sound1 immediately")
 
         // Log events to the console

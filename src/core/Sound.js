@@ -237,7 +237,7 @@ class Sound {
 
   async play(fromGroup = false) {
     if (this.isGrouped && !fromGroup) {
-        console.error('Cannot play a grouped sound directly')
+        console.warn(`Cannot play the sound ${this.fileName} directly. It is in a group.`)
         return
     }
 
