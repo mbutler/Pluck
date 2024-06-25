@@ -1,4 +1,5 @@
 import Sound from './Sound.js'
+
 var groupProperties = new WeakMap;
 
 class Group {

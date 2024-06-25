@@ -35,12 +35,18 @@
         const sound3 = new Pluck.Sound({ file: 'snd.mp3', context: timeline.context })
         const sound4 = new Pluck.Sound({ file: 'snd.mp3', context: timeline.context })
 
+        // make sure sounds are initialized before scheduling or grouping them
         await sound1.initialized
         await sound2.initialized
         await sound3.initialized
         await sound4.initialized
+
+        // this event needs to be set before the sound is played from the group
+        sound1.events.on('play', () => {
+          console.log(`Hey! Sound ${sound1.fileName} played at ${timeline.currentTime} seconds`)
+        })
      
-        // make sure sounds are initialized before scheduling or grouping them
+        
         const group = new Pluck.Group(timeline.context)
         group.addSounds([sound1, sound2, sound3])
 
@@ -68,7 +74,7 @@
         timeline.addSound( 'snd.mp3', timeline.future(30))        
 
         console.log("Sounds initialized")
-        /*
+        
         // Schedule sound1 to play at 1 second
         timeline.scheduleSound(sound1, 1)
         console.log("Scheduled sound1 to play at 1 second")
@@ -90,18 +96,19 @@
         console.log("Playing sound1 immediately")
 
         // Log events to the console
-        timeline.events.on('onSoundScheduled', (sound, time) => {
+        timeline.events.on('scheduled', (sound, time) => {
           `Sound ${sound.file} scheduled to play at ${time} seconds}`
         })
-        */
-        timeline.events.on('onSoundPlayed', (sound, time) => {
+     
+  
+        timeline.events.on('play', (sound, time) => {
           console.log(`ALERT::: Sound ${sound.fileName} played at ${time} seconds}`)
         })
 
-        timeline.events.on('onLoop', () => {
+        timeline.events.on('loop', () => {
         })
 
-        timeline.events.on('onStop', () => {
+        timeline.events.on('stop', () => {
           console.log('Timeline stopped.')
         })
 

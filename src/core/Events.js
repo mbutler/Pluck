@@ -1,12 +1,12 @@
 class Events {
   constructor() {
     this.events = {
-      onStart: [],
-      onStop: [],
-      onLoop: [],
-      onSoundScheduled: [],
-      onSoundPlayed: [],
-      onEffectTriggered: []
+      start: [],
+      stop: [],
+      loop: [],
+      scheduled: [],
+      play: [],
+      effect: []
     }
   }
 

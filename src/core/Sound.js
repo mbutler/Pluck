@@ -1,3 +1,5 @@
+import Events from './Events.js'
+
 const soundProperties = new WeakMap()
 
 class Sound {
@@ -19,6 +21,7 @@ class Sound {
       clearBuffer: options.clearBuffer || false,
       isPlaying: false,
       isGrouped: false,
+      events: new Events()
     }
     soundProperties.set(this, properties)
 
@@ -147,6 +150,15 @@ class Sound {
     properties.isGrouped = value
   }
 
+  get events() {
+    return soundProperties.get(this).events
+  }
+
+  set events(value) {
+    const properties = soundProperties.get(this)
+    properties.events = value
+  }
+
   async initSource(options) {
     if (options.file) {
       await this.loadFromFile(options.file)
@@ -255,6 +267,8 @@ class Sound {
     if (this.source && this.source.start) {
         this.applyAttack()
         console.log('Starting source', this.source)
+        console.log(`GET SOME EVENTS FROM ${this.fileName}`, this.events)
+        this.events.trigger('play')
         this.source.start(this.context.currentTime, this.offset)
     } else {
         console.error('No source to play')

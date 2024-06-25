@@ -90,7 +90,7 @@ class Timeline {
     this.context = new (window.AudioContext || window.webkitAudioContext)()
     console.log('Audio context initialized', this.context)
     this.isPlaying = true
-    this.events.trigger('onStart')
+    this.events.trigger('start')
     await this.context.resume()
     this.loop()
   }
@@ -109,14 +109,14 @@ class Timeline {
         console.log('Playing sound:', sound)
         try {
           await sound.play()
-          this.events.trigger('onSoundPlayed', sound, this.currentTime)
+          this.events.trigger('play', sound, this.currentTime)
         } catch (error) {
           console.error("Error playing sound:", error)
         }
       }
     }
 
-    this.events.trigger('onLoop')
+    this.events.trigger('loop')
     requestAnimationFrame(() => this.loop())
   }
 
@@ -138,13 +138,13 @@ class Timeline {
     }
   
     this.isPlaying = false
-    this.events.trigger('onStop')
+    this.events.trigger('stop')
   }
 
   scheduleSound(sound, time) {
     this.soundQueue.enqueue({ sound, time }, time)
     console.log("Queue state after scheduling:", this.soundQueue)
-    this.events.trigger('onSoundScheduled', sound, time)
+    this.events.trigger('scheduled', sound, time)
   }
 
   rescheduleSound(sound, newTime) {
@@ -167,7 +167,7 @@ class Timeline {
     const sound = new Sound({ file, ...options })
     await sound.initialized
     await sound.play()
-    this.events.trigger('onSoundPlayed', sound, this.currentTime)
+    this.events.trigger('play', sound, this.currentTime)
   }
 
   runEverySecond() {

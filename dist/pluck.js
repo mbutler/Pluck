@@ -1,3 +1,37 @@
+// src/core/Events.js
+class Events {
+  constructor() {
+    this.events = {
+      start: [],
+      stop: [],
+      loop: [],
+      scheduled: [],
+      play: [],
+      effect: []
+    };
+  }
+  on(event, listener) {
+    if (this.events[event]) {
+      this.events[event].push(listener);
+    } else {
+      console.error(`Event ${event} is not supported.`);
+    }
+  }
+  off(event, listener) {
+    if (this.events[event]) {
+      this.events[event] = this.events[event].filter((l) => l !== listener);
+    } else {
+      console.error(`Event ${event} is not supported.`);
+    }
+  }
+  trigger(event, sound, time) {
+    if (this.events[event]) {
+      this.events[event].forEach((listener) => listener(sound, time));
+    }
+  }
+}
+var Events_default = Events;
+
 // src/core/Sound.js
 var soundProperties = new WeakMap;
 
@@ -19,7 +53,8 @@ class Sound {
       mediaStream: options.input || null,
       clearBuffer: options.clearBuffer || false,
       isPlaying: false,
-      isGrouped: false
+      isGrouped: false,
+      events: new Events_default
     };
     soundProperties.set(this, properties);
     this.initialized = this.initialize(options);
@@ -120,6 +155,13 @@ class Sound {
     const properties = soundProperties.get(this);
     properties.isGrouped = value;
   }
+  get events() {
+    return soundProperties.get(this).events;
+  }
+  set events(value) {
+    const properties = soundProperties.get(this);
+    properties.events = value;
+  }
   async initSource(options) {
     if (options.file) {
       await this.loadFromFile(options.file);
@@ -217,6 +259,8 @@ class Sound {
     if (this.source && this.source.start) {
       this.applyAttack();
       console.log("Starting source", this.source);
+      console.log(`GET SOME EVENTS FROM ${this.fileName}`, this.events);
+      this.events.trigger("play");
       this.source.start(this.context.currentTime, this.offset);
     } else {
       console.error("No source to play");
@@ -373,40 +417,6 @@ class PriorityQueue {
 }
 var PriorityQueue_default = PriorityQueue;
 
-// src/core/Events.js
-class Events {
-  constructor() {
-    this.events = {
-      onStart: [],
-      onStop: [],
-      onLoop: [],
-      onSoundScheduled: [],
-      onSoundPlayed: [],
-      onEffectTriggered: []
-    };
-  }
-  on(event, listener) {
-    if (this.events[event]) {
-      this.events[event].push(listener);
-    } else {
-      console.error(`Event ${event} is not supported.`);
-    }
-  }
-  off(event, listener) {
-    if (this.events[event]) {
-      this.events[event] = this.events[event].filter((l) => l !== listener);
-    } else {
-      console.error(`Event ${event} is not supported.`);
-    }
-  }
-  trigger(event, sound, time) {
-    if (this.events[event]) {
-      this.events[event].forEach((listener) => listener(sound, time));
-    }
-  }
-}
-var Events_default = Events;
-
 // src/core/Timeline.js
 var timelineProperties = new WeakMap;
 
@@ -481,7 +491,7 @@ class Timeline {
     this.context = new (window.AudioContext || window.webkitAudioContext);
     console.log("Audio context initialized", this.context);
     this.isPlaying = true;
-    this.events.trigger("onStart");
+    this.events.trigger("start");
     await this.context.resume();
     this.loop();
   }
@@ -497,13 +507,13 @@ class Timeline {
         console.log("Playing sound:", sound);
         try {
           await sound.play();
-          this.events.trigger("onSoundPlayed", sound, this.currentTime);
+          this.events.trigger("play", sound, this.currentTime);
         } catch (error) {
           console.error("Error playing sound:", error);
         }
       }
     }
-    this.events.trigger("onLoop");
+    this.events.trigger("loop");
     requestAnimationFrame(() => this.loop());
   }
   stop() {
@@ -521,12 +531,12 @@ class Timeline {
       this.context.close();
     }
     this.isPlaying = false;
-    this.events.trigger("onStop");
+    this.events.trigger("stop");
   }
   scheduleSound(sound, time) {
     this.soundQueue.enqueue({ sound, time }, time);
     console.log("Queue state after scheduling:", this.soundQueue);
-    this.events.trigger("onSoundScheduled", sound, time);
+    this.events.trigger("scheduled", sound, time);
   }
   rescheduleSound(sound, newTime) {
     this.soundQueue.remove(sound);
@@ -545,7 +555,7 @@ class Timeline {
     const sound = new Sound_default({ file, ...options });
     await sound.initialized;
     await sound.play();
-    this.events.trigger("onSoundPlayed", sound, this.currentTime);
+    this.events.trigger("play", sound, this.currentTime);
   }
   runEverySecond() {
     console.log("Every second");
