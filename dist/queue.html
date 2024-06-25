@@ -90,18 +90,18 @@
         console.log("Playing sound1 immediately")
 
         // Log events to the console
-        timeline.on('onSoundScheduled', (sound, time) => {
+        timeline.events.on('onSoundScheduled', (sound, time) => {
           `Sound ${sound.file} scheduled to play at ${time} seconds}`
         })
         */
-        timeline.on('onSoundPlayed', (sound, time) => {
+        timeline.events.on('onSoundPlayed', (sound, time) => {
           console.log(`ALERT::: Sound ${sound.fileName} played at ${time} seconds}`)
         })
 
-        timeline.on('onLoop', () => {
+        timeline.events.on('onLoop', () => {
         })
 
-        timeline.on('onStop', () => {
+        timeline.events.on('onStop', () => {
           console.log('Timeline stopped.')
         })
 

@@ -262,8 +262,6 @@ class Sound {
     }
 }
 
-
-
   stop() {
     this.isPlaying = false
     if (this.mediaStream) {

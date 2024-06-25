@@ -373,6 +373,40 @@ class PriorityQueue {
 }
 var PriorityQueue_default = PriorityQueue;
 
+// src/core/Events.js
+class Events {
+  constructor() {
+    this.events = {
+      onStart: [],
+      onStop: [],
+      onLoop: [],
+      onSoundScheduled: [],
+      onSoundPlayed: [],
+      onEffectTriggered: []
+    };
+  }
+  on(event, listener) {
+    if (this.events[event]) {
+      this.events[event].push(listener);
+    } else {
+      console.error(`Event ${event} is not supported.`);
+    }
+  }
+  off(event, listener) {
+    if (this.events[event]) {
+      this.events[event] = this.events[event].filter((l) => l !== listener);
+    } else {
+      console.error(`Event ${event} is not supported.`);
+    }
+  }
+  trigger(event, sound, time) {
+    if (this.events[event]) {
+      this.events[event].forEach((listener) => listener(sound, time));
+    }
+  }
+}
+var Events_default = Events;
+
 // src/core/Timeline.js
 var timelineProperties = new WeakMap;
 
@@ -384,14 +418,7 @@ class Timeline {
       isPlaying: false,
       soundQueue: new PriorityQueue_default,
       intervalIDs: {},
-      events: {
-        onStart: [],
-        onStop: [],
-        onLoop: [],
-        onSoundScheduled: [],
-        onSoundPlayed: [],
-        onEffectTriggered: []
-      }
+      events: new Events_default
     };
     timelineProperties.set(this, properties);
   }
@@ -429,21 +456,9 @@ class Timeline {
   get events() {
     return timelineProperties.get(this).events;
   }
-  on(event, listener) {
+  set events(value) {
     const properties = timelineProperties.get(this);
-    if (properties.events[event]) {
-      properties.events[event].push(listener);
-    } else {
-      console.error(`Event ${event} is not supported.`);
-    }
-  }
-  off(event, listener) {
-    const properties = timelineProperties.get(this);
-    if (properties.events[event]) {
-      properties.events[event] = properties.events[event].filter((l) => l !== listener);
-    } else {
-      console.error(`Event ${event} is not supported.`);
-    }
+    properties.events = value;
   }
   future(seconds) {
     return this.currentTime + seconds;
@@ -462,17 +477,11 @@ class Timeline {
       this.intervalIDs = remainingIntervalIDs;
     }
   }
-  triggerEvent(event, sound, time) {
-    const properties = timelineProperties.get(this);
-    if (properties.events[event]) {
-      properties.events[event].forEach((listener) => listener(sound, time));
-    }
-  }
   async start() {
     this.context = new (window.AudioContext || window.webkitAudioContext);
     console.log("Audio context initialized", this.context);
     this.isPlaying = true;
-    this.triggerEvent("onStart");
+    this.events.trigger("onStart");
     await this.context.resume();
     this.loop();
   }
@@ -488,13 +497,13 @@ class Timeline {
         console.log("Playing sound:", sound);
         try {
           await sound.play();
-          this.triggerEvent("onSoundPlayed", sound, this.currentTime);
+          this.events.trigger("onSoundPlayed", sound, this.currentTime);
         } catch (error) {
           console.error("Error playing sound:", error);
         }
       }
     }
-    this.triggerEvent("onLoop");
+    this.events.trigger("onLoop");
     requestAnimationFrame(() => this.loop());
   }
   stop() {
@@ -512,12 +521,12 @@ class Timeline {
       this.context.close();
     }
     this.isPlaying = false;
-    this.triggerEvent("onStop");
+    this.events.trigger("onStop");
   }
   scheduleSound(sound, time) {
     this.soundQueue.enqueue({ sound, time }, time);
     console.log("Queue state after scheduling:", this.soundQueue);
-    this.triggerEvent("onSoundScheduled", sound, time);
+    this.events.trigger("onSoundScheduled", sound, time);
   }
   rescheduleSound(sound, newTime) {
     this.soundQueue.remove(sound);
@@ -536,7 +545,7 @@ class Timeline {
     const sound = new Sound_default({ file, ...options });
     await sound.initialized;
     await sound.play();
-    this.triggerEvent("onSoundPlayed", sound, this.currentTime);
+    this.events.trigger("onSoundPlayed", sound, this.currentTime);
   }
   runEverySecond() {
     console.log("Every second");
