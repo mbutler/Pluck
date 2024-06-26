@@ -24,42 +24,6 @@ class Group {
     groupProperties.set(this, properties)    
   }
 
-  get context() {
-    return groupProperties.get(this).context
-  }
-
-  get gainNode() {
-    return groupProperties.get(this).gainNode
-  }
-
-  get sounds() {
-    return groupProperties.get(this).sounds
-  }
-
-  get volume() {
-    return groupProperties.get(this).gainNode.gain.value
-  }
-
-  set volume(value) {
-    groupProperties.get(this).gainNode.gain.value = value
-  }
-
-  get muted() {
-    return groupProperties.get(this).muted
-  }
-
-  set muted(value) {
-    groupProperties.get(this).muted = value
-  }
-
-  get previousVolume() {
-    return groupProperties.get(this).previousVolume
-  }
-
-  set previousVolume(value) {
-    groupProperties.get(this).previousVolume = value
-  }
-
   async play() {
     const promises = this.sounds.map(async (sound) => {
       if (!sound.isPlaying) {
@@ -103,11 +67,9 @@ class Group {
       sound.disconnect(sound.gainNode)
       this.sounds.push(sound)
       sound.connect(this.gainNode)
-      console.log("Added and connected new sound to group gain node:", sound)
     })
   }
   
-
   removeSound(sound) {
     const index = this.sounds.indexOf(sound)
     if (index === -1) {
@@ -116,13 +78,12 @@ class Group {
     }
     sound.disconnect(this.gainNode)
     this.sounds.splice(index, 1)
-    console.log("Removed and disconnected sound from group gain node:", sound)
     if (this.sounds.length === 0) {
       this.gainNode.disconnect(this.context.destination)
     }
   }
 
-  setVolumeGradually(value, duration = 1) {
+  fadeVolumeTo(value, duration = 1) {
     const currentTime = this.context.currentTime
     gainNode.gain.setValueAtTime(gainNode.gain.value, currentTime)
     gainNode.gain.linearRampToValueAtTime(value, currentTime + duration)
@@ -134,7 +95,6 @@ class Group {
       this.previousVolume = this.volume
       this.volume = 0
       this.muted = true
-      console.log("Group muted")
     }
   }
 
@@ -142,8 +102,43 @@ class Group {
     if (this.muted) {
       this.volume = this.previousVolume
       this.muted = false
-      console.log("Group unmuted")
     }
+  }
+
+  get context() {
+    return groupProperties.get(this).context
+  }
+
+  get gainNode() {
+    return groupProperties.get(this).gainNode
+  }
+
+  get sounds() {
+    return groupProperties.get(this).sounds
+  }
+
+  get volume() {
+    return groupProperties.get(this).gainNode.gain.value
+  }
+
+  set volume(value) {
+    groupProperties.get(this).gainNode.gain.value = value
+  }
+
+  get muted() {
+    return groupProperties.get(this).muted
+  }
+
+  set muted(value) {
+    groupProperties.get(this).muted = value
+  }
+
+  get previousVolume() {
+    return groupProperties.get(this).previousVolume
+  }
+
+  set previousVolume(value) {
+    groupProperties.get(this).previousVolume = value
   }
 }
 

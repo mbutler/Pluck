@@ -17,6 +17,110 @@ class Timeline {
     timelineProperties.set(this, properties)
   }
 
+  startInterval(intervalInSeconds, callback) {
+    const intervalID = setInterval(() => {
+      callback()
+    }, intervalInSeconds * 1000)
+    this.intervalIDs = { ...this.intervalIDs, [intervalInSeconds]: intervalID }
+  }
+
+  stopInterval(intervalInSeconds) {
+    const intervalID = this.intervalIDs[intervalInSeconds]
+    if (intervalID) {
+      clearInterval(intervalID)
+      const { [intervalInSeconds]: _, ...remainingIntervalIDs } = this.intervalIDs
+      this.intervalIDs = remainingIntervalIDs
+    }
+  }
+
+  async start() {
+    console.info('Starting timeline')
+    this.context = new (window.AudioContext || window.webkitAudioContext)()
+    this.isPlaying = true
+    this.events.trigger('start')
+    await this.context.resume()
+    this.loop()
+  }
+
+  async loop() {
+    if (!this.isPlaying) return
+
+    this.currentTime = this.context.currentTime
+
+    while (!this.soundQueue.isEmpty() && this.soundQueue.peek().priority <= this.currentTime) {
+      const node = this.soundQueue.dequeue()
+      const { sound, time } = node
+
+      if (sound) {
+        try {
+          await sound.play()
+          this.events.trigger('play', sound, this.currentTime)
+        } catch (error) {
+          console.error("Error playing sound:", error)
+        }
+      }
+    }
+
+    this.events.trigger('loop')
+    requestAnimationFrame(() => this.loop())
+  }
+
+  stop() {
+    Object.keys(this.intervalIDs).forEach(intervalInSeconds => {
+      this.stopInterval(Number(intervalInSeconds))
+    })
+  
+    while (!this.soundQueue.isEmpty()) {
+      const node = this.soundQueue.dequeue()
+      const { sound } = node
+      if (sound && sound.isPlaying) {
+        sound.stop()
+      }
+    }
+  
+    if (this.context && this.context.state !== 'closed') {
+      this.context.close()
+    }
+  
+    this.isPlaying = false
+    this.events.trigger('stop')
+  }
+
+  scheduleSound(sound, time) {
+    this.soundQueue.enqueue({ sound, time }, time)
+    this.events.trigger('scheduled', sound, time)
+  }
+
+  rescheduleSound(sound, newTime) {
+    this.soundQueue.remove(sound)
+    this.scheduleSound(sound, newTime)
+  }
+
+  playNow(sound) {
+    this.soundQueue.enqueue({ sound, time: this.currentTime }, this.currentTime)
+  }
+
+  async addSound(file, startTime, options = {}) {
+    const sound = new Sound({ file, ...options })
+    await sound.initialized
+    this.scheduleSound(sound, startTime)
+  }
+
+  async playSound(file, options = {}) {
+    const sound = new Sound({ file, ...options })
+    await sound.initialized
+    await sound.play()
+    this.events.trigger('play', sound, this.currentTime)
+  }
+
+  future(seconds) {
+    return this.currentTime + seconds
+  }
+
+  runEverySecond() {
+    console.info('Every second')
+  }
+
   get context() {
     return timelineProperties.get(this).context
   }
@@ -64,114 +168,6 @@ class Timeline {
   set events(value) {
     const properties = timelineProperties.get(this)
     properties.events = value
-  }
-
-  future(seconds) {
-    return this.currentTime + seconds
-  }
-
-  startInterval(intervalInSeconds, callback) {
-    const intervalID = setInterval(() => {
-      callback()
-    }, intervalInSeconds * 1000)
-    this.intervalIDs = { ...this.intervalIDs, [intervalInSeconds]: intervalID }
-  }
-
-  stopInterval(intervalInSeconds) {
-    const intervalID = this.intervalIDs[intervalInSeconds]
-    if (intervalID) {
-      clearInterval(intervalID)
-      const { [intervalInSeconds]: _, ...remainingIntervalIDs } = this.intervalIDs
-      this.intervalIDs = remainingIntervalIDs
-    }
-  }
-
-  async start() {
-    this.context = new (window.AudioContext || window.webkitAudioContext)()
-    console.log('Audio context initialized', this.context)
-    this.isPlaying = true
-    this.events.trigger('start')
-    await this.context.resume()
-    this.loop()
-  }
-
-  async loop() {
-    if (!this.isPlaying) return
-
-    this.currentTime = this.context.currentTime
-
-    while (!this.soundQueue.isEmpty() && this.soundQueue.peek().priority <= this.currentTime) {
-      const node = this.soundQueue.dequeue()
-      const { sound, time } = node
-      console.log(`Processing item scheduled for time: ${time}`)
-
-      if (sound) {
-        console.log('Playing sound:', sound)
-        try {
-          await sound.play()
-          this.events.trigger('play', sound, this.currentTime)
-        } catch (error) {
-          console.error("Error playing sound:", error)
-        }
-      }
-    }
-
-    this.events.trigger('loop')
-    requestAnimationFrame(() => this.loop())
-  }
-
-  stop() {
-    Object.keys(this.intervalIDs).forEach(intervalInSeconds => {
-      this.stopInterval(Number(intervalInSeconds))
-    })
-  
-    while (!this.soundQueue.isEmpty()) {
-      const node = this.soundQueue.dequeue()
-      const { sound } = node
-      if (sound && sound.isPlaying) {
-        sound.stop()
-      }
-    }
-  
-    if (this.context && this.context.state !== 'closed') {
-      this.context.close()
-    }
-  
-    this.isPlaying = false
-    this.events.trigger('stop')
-  }
-
-  scheduleSound(sound, time) {
-    this.soundQueue.enqueue({ sound, time }, time)
-    console.log("Queue state after scheduling:", this.soundQueue)
-    this.events.trigger('scheduled', sound, time)
-  }
-
-  rescheduleSound(sound, newTime) {
-    this.soundQueue.remove(sound)
-    this.scheduleSound(sound, newTime)
-  }
-
-  playNow(sound) {
-    this.soundQueue.enqueue({ sound, time: this.currentTime }, this.currentTime)
-    console.log(`Playing sound immediately at ${this.currentTime}`)
-  }
-
-  async addSound(file, startTime, options = {}) {
-    const sound = new Sound({ file, ...options })
-    await sound.initialized
-    this.scheduleSound(sound, startTime)
-  }
-
-  async playSound(file, options = {}) {
-    const sound = new Sound({ file, ...options })
-    await sound.initialized
-    await sound.play()
-    this.events.trigger('play', sound, this.currentTime)
-  }
-
-  runEverySecond() {
-    console.log('Every second')
   }
 }
 
