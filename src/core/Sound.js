@@ -184,12 +184,17 @@ class Sound {
     this.gainNode.gain.linearRampToValueAtTime(this.volume, currentTime + this.attack)
   }
 
-  applyRelease() {
+  applyRelease(callback) {
     if (!this.gainNode) return
     const currentTime = this.context.currentTime
     this.gainNode.gain.setValueAtTime(this.volume, currentTime)
     this.gainNode.gain.linearRampToValueAtTime(0, currentTime + this.release)
+    // Schedule the callback after the release time
+    if (typeof callback === 'function') {
+      setTimeout(callback, this.release * 1000)
+    }
   }
+  
 
   connect(node) {
     const properties = soundProperties.get(this)
