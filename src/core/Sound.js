@@ -489,4 +489,95 @@ class Group {
     }
 }
 
+class SoundManager {
+    constructor() {
+        this.context = new (window.AudioContext || window.webkitAudioContext)();
+        this.maxConcurrentSounds = 32;
+        this.activeSounds = new Set();
+    }
+
+    async playSound(file, options = {}) {
+        if (this.activeSounds.size >= this.maxConcurrentSounds) {
+            // Stop oldest sound
+            const oldestSound = Array.from(this.activeSounds)[0];
+            oldestSound.stop();
+        }
+
+        const sound = new Sound({ 
+            file, 
+            context: this.context,
+            ...options 
+        });
+        
+        this.activeSounds.add(sound);
+        sound.events.on('stop', () => {
+            this.activeSounds.delete(sound);
+        });
+
+        await sound.play();
+        return sound;
+    }
+}
+
+class SoundGroup {
+    constructor(context) {
+        this.context = context;
+        this.gainNode = context.createGain();
+        this.gainNode.connect(context.destination);
+        this.sounds = new Set();
+        this.maxSounds = 32;
+    }
+
+    async play() {
+        const startTime = this.context.currentTime;
+        const promises = Array.from(this.sounds).map(sound => 
+            sound.play(startTime)
+        );
+        
+        try {
+            await Promise.all(promises);
+        } catch (error) {
+            console.error('Error playing group:', error);
+            this.stop();
+            throw error;
+        }
+    }
+
+    stop() {
+        Array.from(this.sounds).forEach(sound => sound.stop());
+    }
+}
+
+class SoundTimeline {
+    constructor() {
+        this.context = new (window.AudioContext || window.webkitAudioContext)();
+        this.soundQueue = new PriorityQueue();
+        this.maxSoundsPerFrame = 4;
+        this.isPlaying = false;
+    }
+
+    async loop() {
+        if (!this.isPlaying) return;
+
+        const currentTime = this.context.currentTime;
+        let soundsProcessed = 0;
+
+        while (!this.soundQueue.isEmpty() && 
+               this.soundQueue.peek().priority <= currentTime &&
+               soundsProcessed < this.maxSoundsPerFrame) {
+            const node = this.soundQueue.dequeue();
+            const { sound, time } = node;
+
+            try {
+                await sound.play();
+                soundsProcessed++;
+            } catch (error) {
+                console.error('Error playing scheduled sound:', error);
+            }
+        }
+
+        requestAnimationFrame(() => this.loop());
+    }
+}
+
 export default Sound
