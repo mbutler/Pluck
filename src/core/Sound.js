@@ -21,7 +21,9 @@ class Sound {
       clearBuffer: options.clearBuffer || false,
       isPlaying: false,
       isGrouped: false,
-      events: new Events()
+      events: new Events(),
+      animationFrameId: null,
+      intervalIDs: {}
     }
     soundProperties.set(this, properties)
 
@@ -33,6 +35,7 @@ class Sound {
       await this.initSource(options)
     } catch (error) {
       console.error('Error initializing source:', error)
+      throw error
     }
   }
 
@@ -144,20 +147,23 @@ class Sound {
 }
 
   stop() {
-    this.isPlaying = false
-    if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach(track => track.stop())
-      this.source.disconnect()
-      this.source = null
-      return
+    this.isPlaying = false;
+    if (this.source) {
+        this.source.disconnect();
+        if (this.source.stop) {
+            this.source.stop();
+        }
+        this.source = null;
     }
-    if (this.source && this.source.stop) {
-      this.applyRelease(() => {
-        this.source.stop()
-        this.source.disconnect()
-        this.source = null
-        if (this.clearBuffer) this.audioBuffer = null
-      })
+    if (this.mediaStream) {
+        this.mediaStream.getTracks().forEach(track => track.stop());
+        this.mediaStream = null;
+    }
+    if (this.clearBuffer) {
+        this.audioBuffer = null;
+    }
+    if (this.animationFrameId) {
+        cancelAnimationFrame(this.animationFrameId);
     }
   }
 
@@ -245,10 +251,13 @@ class Sound {
   }
 
   set volume(value) {
-    const properties = soundProperties.get(this)
-    properties.volume = value
+    if (value < 0 || value > 1) {
+        throw new Error('Volume must be between 0 and 1');
+    }
+    const properties = soundProperties.get(this);
+    properties.volume = value;
     if (properties.gainNode) {
-      properties.gainNode.gain.value = value
+        properties.gainNode.gain.value = value;
     }
   }
 
@@ -336,6 +345,148 @@ class Sound {
     const properties = soundProperties.get(this)
     properties.events = value
   }
+
+  async loop() {
+    if (!this.isPlaying) return;
+    
+    this.animationFrameId = requestAnimationFrame(() => this.loop());
+  }
+
+  scheduleSound(sound, time) {
+    if (time < this.currentTime) {
+        console.warn('Cannot schedule sound in the past');
+        return;
+    }
+    if (this.soundQueue.find(node => node.item.sound === sound)) {
+        console.warn('Sound is already scheduled');
+        return;
+    }
+    this.soundQueue.enqueue({ sound, time }, time);
+    this.events.trigger('scheduled', sound, time);
+  }
+
+  startInterval(intervalInSeconds, callback) {
+    // Check for existing interval
+    if (this.intervalIDs[intervalInSeconds]) {
+        this.stopInterval(intervalInSeconds);
+    }
+    const intervalID = setInterval(() => {
+        if (!this.isPlaying) {
+            this.stopInterval(intervalInSeconds);
+            return;
+        }
+        callback();
+    }, intervalInSeconds * 1000);
+    this.intervalIDs = { ...this.intervalIDs, [intervalInSeconds]: intervalID };
+  }
+
+  async addSound(file, startTime, options = {}) {
+    const sound = new Sound({ file, ...options });
+    try {
+        await Promise.race([
+            sound.initialized,
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Sound loading timeout')), 5000)
+            )
+        ]);
+        this.scheduleSound(sound, startTime);
+    } catch (error) {
+        console.error('Failed to load sound:', error);
+        this.events.trigger('error', error);
+    }
+  }
+
+  fadeVolumeTo(value, duration = 1) {
+    const currentTime = this.context.currentTime
+    this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, currentTime)
+    this.gainNode.gain.linearRampToValueAtTime(value, currentTime + duration)
+  }
+}
+
+class Group {
+    constructor(context) {
+        if (!(context instanceof AudioContext)) {
+            throw new Error('No audio context provided to Group');
+        }
+
+        const gainNode = context.createGain();
+        gainNode.connect(context.destination);
+        
+        const properties = {
+            context,
+            gainNode,
+            sounds: new Set(), // Use Set to prevent duplicates
+            volume: 1,
+            muted: false,
+            previousVolume: 1,
+            maxSounds: 100 // Add maximum limit
+        };
+        
+        groupProperties.set(this, properties);
+    }
+
+    addSounds(sounds) {
+        if (!Array.isArray(sounds)) {
+            throw new Error("Not an array of sounds");
+        }
+    
+        if (this.sounds.size + sounds.length > this.maxSounds) {
+            throw new Error(`Cannot add more sounds. Maximum limit is ${this.maxSounds}`);
+        }
+
+        sounds.forEach((sound) => {
+            if (!(sound instanceof Sound)) {
+                throw new Error("The sound is not an instance of Sound class");
+            }
+    
+            if (sound.context !== this.context) {
+                throw new Error("Cannot add sound to group: mismatched audio contexts");
+            }
+
+            if (this.sounds.has(sound)) {
+                console.warn("Sound already in group");
+                return;
+            }
+
+            sound.isGrouped = true;
+            sound.disconnect(sound.gainNode);
+            this.sounds.add(sound);
+            sound.connect(this.gainNode);
+        });
+    }
+
+    removeSound(sound) {
+        if (!this.sounds.has(sound)) {
+            console.warn("The sound is not in the group");
+            return;
+        }
+        sound.isGrouped = false; // Reset the flag
+        sound.disconnect(this.gainNode);
+        this.sounds.delete(sound);
+        if (this.sounds.size === 0) {
+            this.gainNode.disconnect(this.context.destination);
+        }
+    }
+
+    fadeVolumeTo(value, duration = 1) {
+        if (value < 0 || value > 1) {
+            throw new Error('Volume must be between 0 and 1');
+        }
+        const currentTime = this.context.currentTime;
+        this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, currentTime);
+        this.gainNode.gain.linearRampToValueAtTime(value, currentTime + duration);
+    }
+
+    destroy() {
+        this.stop();
+        this.sounds.forEach(sound => {
+            sound.isGrouped = false;
+            sound.disconnect(this.gainNode);
+        });
+        this.sounds.clear();
+        this.gainNode.disconnect();
+        this.gainNode = null;
+    }
 }
 
 export default Sound
