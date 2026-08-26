@@ -42,6 +42,14 @@ class Sound {
       // Extra destinations added with connect(), re-established whenever the
       // chain is rebuilt.
       taps: new Set(),
+      // { timer, promise } while a fade-out is running, so a second request
+      // joins the first instead of stacking a second ramp on the same gain.
+      fadeOut: null,
+      // Set when the source is a streaming <audio> element rather than a
+      // decoded buffer. Streamed sounds have no voices: the element itself is
+      // the one thing playing.
+      streamUrl: options.stream || null,
+      audioElement: null,
       // How many instances of this sound may ring at once. The default of 1
       // restarts on replay; raising it lets hits overlap.
       polyphony: options.polyphony ?? 1,
@@ -62,7 +70,9 @@ class Sound {
   }
 
   async initSource(options) {
-    if (options.file) {
+    if (options.stream) {
+      this.initFromStream(options.stream)
+    } else if (options.file) {
       await this.loadFromFile(options.file)
     } else if (options.audioBuffer) {
       // Nothing to build: the buffer is all a voice needs.
@@ -90,6 +100,69 @@ class Sound {
 
   initFromWave(waveOptions) {
     soundProperties.get(this).waveOptions = waveOptions
+  }
+
+  /**
+   * Streams from an <audio> element instead of decoding the whole file.
+   *
+   * A decoded AudioBuffer is uncompressed float32: a fifteen-minute stereo file
+   * is over three hundred megabytes in memory, and several of those at once is
+   * more than a browser tab should be asked to hold. Streaming keeps the file
+   * compressed and reads it as it plays, which is what long-form audio -- music
+   * beds, ambient layers, anything measured in minutes -- actually wants.
+   *
+   * The trade is timing. A media element cannot be started at an exact time on
+   * the audio clock, so a streamed sound is scheduled with a timer and lands
+   * within a few milliseconds rather than on the sample. That is fine for a pad
+   * and wrong for a snare.
+   */
+  initFromStream(url) {
+    const properties = soundProperties.get(this)
+    const element = new Audio()
+    element.crossOrigin = 'anonymous'   // must be set before src to take effect
+    element.preload = 'auto'
+    element.src = url
+    element.loop = properties.loop
+
+    properties.audioElement = element
+    properties.streamUrl = url
+    properties.source = this.context.createMediaElementSource(element)
+    this.connectGain()
+
+    element.addEventListener('ended', () => {
+      // Only reached when the element is not looping.
+      if (!properties.isPlaying) return
+      properties.isPlaying = false
+      this.events.trigger('ended', this)
+    })
+  }
+
+  /** Starts the streaming element, at `when` if that is still ahead of us. */
+  playStream(when) {
+    const properties = soundProperties.get(this)
+    const element = properties.audioElement
+
+    element.loop = properties.loop
+    properties.isPlaying = true
+    this.applyAttack(this.context.currentTime)
+    this.events.trigger('play', this)
+
+    const begin = () => {
+      element.currentTime = properties.offset
+      const started = element.play()
+      if (started && typeof started.catch === 'function') {
+        started.catch(error => console.error('Error playing stream:', error))
+      }
+    }
+
+    const delay = (when - this.context.currentTime) * 1000
+    if (delay > 0) {
+      // A timer, not the audio clock: see initFromStream.
+      properties.streamTimer = setTimeout(begin, delay)
+      return
+    }
+
+    begin()
   }
 
   /**
@@ -151,6 +224,7 @@ class Sound {
     }
 
     const { when = 0, fromGroup = false } = options
+    const properties = soundProperties.get(this)
 
     if (this.isGrouped && !fromGroup) {
       console.warn(`Cannot play the sound ${this.fileName} directly. It is in a group.`)
@@ -168,6 +242,13 @@ class Sound {
       return
     }
 
+    // A streamed sound has no voices; the element itself is what plays.
+    if (properties.audioElement) {
+      this.cancelFadeOut()
+      this.playStream(when)
+      return
+    }
+
     if (!this.audioBuffer && !this.waveOptions) {
       console.error('No audio buffer or source available to play')
       return
@@ -177,8 +258,6 @@ class Sound {
     // last play() left behind and build a new one. Grouped sounds included:
     // the fresh source feeds this.gainNode, which is already wired to the
     // group, so the routing survives.
-    const properties = soundProperties.get(this)
-
     const source = this.createSourceNode()
     if (!source || !source.start) {
       console.error('No source to play')
@@ -226,7 +305,68 @@ class Sound {
     this.events.trigger('ended', this)
   }
 
-  stop() {
+  /**
+   * @param {object} [options]
+   * @param {number} [options.fade=0]  seconds to ramp to silence before
+   *   stopping. The ramp runs on the audio clock rather than on a timer, so it
+   *   is smooth regardless of what the main thread is doing.
+   * @returns {Promise<void>} resolves once the sound has actually stopped
+   */
+  stop(options = {}) {
+    const properties = soundProperties.get(this)
+    const { fade = 0 } = options
+
+    if (fade > 0 && properties.isPlaying) {
+      return properties.fadeOut ? properties.fadeOut.promise : this.fadeOutAndStop(fade)
+    }
+
+    this.cancelFadeOut()
+    this.stopNow()
+    return Promise.resolve()
+  }
+
+  /** Ramps this sound's gain to silence, then stops it. */
+  fadeOutAndStop(seconds) {
+    const properties = soundProperties.get(this)
+    const gain = properties.gainNode.gain
+    const now = this.context.currentTime
+
+    gain.cancelScheduledValues(now)
+    gain.setValueAtTime(gain.value, now)
+    gain.linearRampToValueAtTime(0, now + seconds)
+
+    const state = { timer: null, promise: null }
+    properties.fadeOut = state
+
+    state.promise = new Promise(resolve => {
+      state.timer = setTimeout(() => {
+        properties.fadeOut = null
+        // Restore the gain before tearing down, or the next play would be
+        // silent: the ramp left the node at zero.
+        gain.cancelScheduledValues(this.context.currentTime)
+        gain.value = properties.volume
+        this.stopNow()
+        resolve()
+      }, seconds * 1000)
+    })
+
+    return state.promise
+  }
+
+  /** Abandons a fade in progress and puts the gain back where it belongs. */
+  cancelFadeOut() {
+    const properties = soundProperties.get(this)
+    if (!properties.fadeOut) return
+
+    clearTimeout(properties.fadeOut.timer)
+    properties.fadeOut = null
+
+    const gain = properties.gainNode.gain
+    gain.cancelScheduledValues(this.context.currentTime)
+    gain.value = properties.volume
+  }
+
+  stopNow() {
     const properties = soundProperties.get(this)
     const wasPlaying = properties.isPlaying
 
@@ -242,11 +382,20 @@ class Sound {
     const endedDuringTeardown = wasPlaying && !properties.isPlaying
     properties.isPlaying = false
 
-    // A live input has a source node but no voice; unhook it directly.
-    if (properties.source && properties.mediaStream) {
-      properties.source.disconnect()
+    if (properties.audioElement) {
+      clearTimeout(properties.streamTimer)
+      properties.streamTimer = null
+      properties.audioElement.pause()
+      properties.audioElement.currentTime = 0
+      // The element and its source node are kept: unlike a buffer source they
+      // are reusable, so the sound can simply be played again.
+    } else {
+      // A live input has a source node but no voice; unhook it directly.
+      if (properties.source && properties.mediaStream) {
+        properties.source.disconnect()
+      }
+      properties.source = null
     }
-    properties.source = null
 
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach(track => track.stop())
@@ -275,7 +424,10 @@ class Sound {
       cache: properties.useCache
     }
 
-    if (properties.audioBuffer) {
+    if (properties.streamUrl) {
+      // Each clone streams independently; there is no buffer to share.
+      options.stream = properties.streamUrl
+    } else if (properties.audioBuffer) {
       // Share the decoded buffer rather than fetching and decoding again.
       options.audioBuffer = properties.audioBuffer
     } else if (properties.fileName) {
@@ -450,6 +602,7 @@ class Sound {
   set loop(value) {
     const properties = soundProperties.get(this)
     properties.loop = value
+    if (properties.audioElement) properties.audioElement.loop = value
   }
 
   get attack() {
@@ -485,6 +638,20 @@ class Sound {
 
   get waveOptions() {
     return soundProperties.get(this).waveOptions
+  }
+
+  /** The URL this sound streams from, or null if it is buffer-backed. */
+  get streamUrl() {
+    return soundProperties.get(this).streamUrl
+  }
+
+  /** The underlying <audio> element for a streamed sound, or null. */
+  get audioElement() {
+    return soundProperties.get(this).audioElement
+  }
+
+  get isStreaming() {
+    return soundProperties.get(this).audioElement !== null
   }
 
   /** The voices currently sounding, oldest first. */

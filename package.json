@@ -49,7 +49,7 @@
     "url": "https://github.com/mbutler/Pluck/issues"
   },
   "scripts": {
-    "test": "bun test",
+    "test": "bun test ./test",
     "build": "bun run build:esm && bun run build:global && bun run build:min",
     "build:esm": "bun build src/index.js --outfile ./dist/pluck.esm.js --format esm",
     "build:global": "bun build src/global.js --format iife --outfile ./dist/pluck.js",

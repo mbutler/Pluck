@@ -550,3 +550,104 @@ describe('play options', () => {
     expect(sound.play(false)).rejects.toThrow('play() takes an options object')
   })
 })
+
+describe('fade out and stop', () => {
+  test('ramps the gain to silence on the audio clock', async () => {
+    const sound = bufferedSound({ volume: 0.8 })
+    await sound.play()
+    sound.gainNode.gain.automation.length = 0
+
+    sound.stop({ fade: 3 })
+
+    expect(sound.gainNode.gain.automation).toEqual([
+      { type: 'cancelScheduledValues', time: 0 },
+      { type: 'setValueAtTime', value: 0.8, time: 0 },
+      { type: 'linearRampToValueAtTime', value: 0, time: 3 }
+    ])
+  })
+
+  test('keeps playing until the fade finishes', async () => {
+    const sound = bufferedSound()
+    await sound.play()
+
+    const stopping = sound.stop({ fade: 0.05 })
+    expect(sound.isPlaying).toBe(true)
+
+    await stopping
+    expect(sound.isPlaying).toBe(false)
+    expect(sound.voices).toEqual([])
+  })
+
+  // The ramp leaves the gain at zero; without restoring it the next play would
+  // be silent.
+  test('restores the gain so the sound can play again', async () => {
+    const sound = bufferedSound({ volume: 0.6 })
+    await sound.play()
+    await sound.stop({ fade: 0.05 })
+
+    expect(sound.gainNode.gain.value).toBe(0.6)
+
+    await sound.play()
+    expect(sound.isPlaying).toBe(true)
+  })
+
+  test('fires ended once, when the fade completes', async () => {
+    const sound = bufferedSound()
+    const seen = []
+    sound.events.on('stop', () => seen.push('stop'))
+    sound.events.on('ended', () => seen.push('ended'))
+    await sound.play()
+
+    const stopping = sound.stop({ fade: 0.05 })
+    expect(seen).toEqual([])
+
+    await stopping
+    expect(seen).toEqual(['stop', 'ended'])
+  })
+
+  // Monsoon Station's hand-rolled version could stack two fade intervals on the
+  // same volume, because two code paths both routed into it.
+  test('a second fade joins the first rather than stacking', async () => {
+    const sound = bufferedSound()
+    await sound.play()
+
+    const first = sound.stop({ fade: 0.05 })
+    const second = sound.stop({ fade: 0.05 })
+    expect(second).toBe(first)
+
+    await first
+    expect(sound.isPlaying).toBe(false)
+  })
+
+  test('an immediate stop cancels a fade in progress', async () => {
+    const sound = bufferedSound({ volume: 0.5 })
+    await sound.play()
+
+    sound.stop({ fade: 10 })
+    await sound.stop()
+
+    expect(sound.isPlaying).toBe(false)
+    expect(sound.gainNode.gain.value).toBe(0.5)
+
+    // The abandoned timer must not fire later and stop a fresh playthrough.
+    await sound.play()
+    await new Promise(resolve => setTimeout(resolve, 30))
+    expect(sound.isPlaying).toBe(true)
+  })
+
+  test('fading a sound that is not playing stops it immediately', async () => {
+    const sound = bufferedSound()
+    await sound.initialized
+
+    await sound.stop({ fade: 10 })
+
+    expect(sound.isPlaying).toBe(false)
+  })
+
+  test('stop returns a promise either way', async () => {
+    const sound = bufferedSound()
+    await sound.play()
+
+    expect(sound.stop()).toBeInstanceOf(Promise)
+  })
+})

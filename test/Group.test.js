@@ -493,3 +493,39 @@ describe('events', () => {
     expect(() => { foreign.stop() }).not.toThrow()
   })
 })
+
+describe('fading a group', () => {
+  test('forwards the fade to every member', async () => {
+    const group = new Group(context)
+    const one = bufferedSound({ volume: 0.5 })
+    const two = bufferedSound({ volume: 0.5 })
+    await one.initialized
+    await two.initialized
+    group.addSounds([one, two])
+    await group.play()
+
+    const stopping = group.stop({ fade: 0.05 })
+    expect(one.isPlaying).toBe(true)
+    expect(two.isPlaying).toBe(true)
+
+    await stopping
+    expect(one.isPlaying).toBe(false)
+    expect(two.isPlaying).toBe(false)
+  })
+
+  test('the group ends once the fade completes', async () => {
+    const group = new Group(context)
+    const sound = bufferedSound()
+    await sound.initialized
+    group.addSounds([sound])
+    const seen = []
+    group.events.on('ended', () => seen.push('ended'))
+
+    await group.play()
+    const stopping = group.stop({ fade: 0.05 })
+    expect(seen).toEqual([])
+
+    await stopping
+    expect(seen).toEqual(['ended'])
+  })
+})

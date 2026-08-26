@@ -31,6 +31,7 @@
   var exports_global = {};
   __export(exports_global, {
     bufferCache: () => BufferCache_default,
+    bufferBytes: () => bufferBytes,
     Voice: () => Voice_default,
     Tremolo: () => Tremolo_default,
     Timeline: () => Timeline_default,
@@ -55,6 +56,7 @@
   var exports_src = {};
   __export(exports_src, {
     bufferCache: () => BufferCache_default,
+    bufferBytes: () => bufferBytes,
     Voice: () => Voice_default,
     Tremolo: () => Tremolo_default,
     Timeline: () => Timeline_default,
@@ -186,16 +188,23 @@
     const arrayBuffer = await response.arrayBuffer();
     return context.decodeAudioData(arrayBuffer);
   };
+  var bufferBytes = (buffer) => {
+    if (!buffer || !buffer.length || !buffer.numberOfChannels)
+      return 0;
+    return buffer.length * buffer.numberOfChannels * 4;
+  };
 
   class BufferCache {
-    constructor() {
+    constructor({ maxBytes = Infinity, maxSize = Infinity } = {}) {
       this.buffers = new Map;
       this.pending = new Map;
+      this.maxBytes = maxBytes;
+      this.maxSize = maxSize;
+      this.bytes = 0;
     }
     async load(context, url) {
-      const decoded = this.buffers.get(url);
-      if (decoded)
-        return decoded;
+      if (this.buffers.has(url))
+        return this.touch(url);
       let pending = this.pending.get(url);
       if (!pending) {
         pending = fetchAndDecode(context, url);
@@ -203,23 +212,50 @@
       }
       try {
         const buffer = await pending;
-        this.buffers.set(url, buffer);
+        this.remember(url, buffer);
         return buffer;
       } finally {
         this.pending.delete(url);
       }
     }
+    remember(url, buffer) {
+      if (this.buffers.has(url))
+        this.delete(url);
+      this.buffers.set(url, buffer);
+      this.bytes += bufferBytes(buffer);
+      this.evict();
+    }
+    touch(url) {
+      const buffer = this.buffers.get(url);
+      this.buffers.delete(url);
+      this.buffers.set(url, buffer);
+      return buffer;
+    }
+    evict() {
+      while (this.buffers.size > this.maxSize || this.bytes > this.maxBytes) {
+        const oldest = this.buffers.keys().next().value;
+        if (oldest === undefined)
+          return;
+        this.delete(oldest);
+      }
+    }
     get(url) {
-      return this.buffers.get(url);
+      if (!this.buffers.has(url))
+        return;
+      return this.touch(url);
     }
     has(url) {
       return this.buffers.has(url);
     }
     delete(url) {
+      if (!this.buffers.has(url))
+        return false;
+      this.bytes -= bufferBytes(this.buffers.get(url));
       return this.buffers.delete(url);
     }
     clear() {
       this.buffers.clear();
+      this.bytes = 0;
     }
     get size() {
       return this.buffers.size;
@@ -258,6 +294,9 @@
         useCache: options.cache !== false,
         effects: [],
         taps: new Set,
+        fadeOut: null,
+        streamUrl: options.stream || null,
+        audioElement: null,
         polyphony: options.polyphony ?? 1,
         voices: []
       };
@@ -273,7 +312,9 @@
       }
     }
     async initSource(options) {
-      if (options.file) {
+      if (options.stream) {
+        this.initFromStream(options.stream);
+      } else if (options.file) {
         await this.loadFromFile(options.file);
       } else if (options.audioBuffer) {} else if (options.wave) {
         this.initFromWave(options.wave);
@@ -293,6 +334,45 @@
     }
     initFromWave(waveOptions) {
       soundProperties.get(this).waveOptions = waveOptions;
+    }
+    initFromStream(url) {
+      const properties = soundProperties.get(this);
+      const element = new Audio;
+      element.crossOrigin = "anonymous";
+      element.preload = "auto";
+      element.src = url;
+      element.loop = properties.loop;
+      properties.audioElement = element;
+      properties.streamUrl = url;
+      properties.source = this.context.createMediaElementSource(element);
+      this.connectGain();
+      element.addEventListener("ended", () => {
+        if (!properties.isPlaying)
+          return;
+        properties.isPlaying = false;
+        this.events.trigger("ended", this);
+      });
+    }
+    playStream(when) {
+      const properties = soundProperties.get(this);
+      const element = properties.audioElement;
+      element.loop = properties.loop;
+      properties.isPlaying = true;
+      this.applyAttack(this.context.currentTime);
+      this.events.trigger("play", this);
+      const begin = () => {
+        element.currentTime = properties.offset;
+        const started = element.play();
+        if (started && typeof started.catch === "function") {
+          started.catch((error) => console.error("Error playing stream:", error));
+        }
+      };
+      const delay = (when - this.context.currentTime) * 1000;
+      if (delay > 0) {
+        properties.streamTimer = setTimeout(begin, delay);
+        return;
+      }
+      begin();
     }
     createSourceNode() {
       if (this.audioBuffer) {
@@ -332,6 +412,7 @@
         throw new TypeError("play() takes an options object, e.g. play({ when: time })");
       }
       const { when = 0, fromGroup = false } = options;
+      const properties = soundProperties.get(this);
       if (this.isGrouped && !fromGroup) {
         console.warn(`Cannot play the sound ${this.fileName} directly. It is in a group.`);
         return;
@@ -344,11 +425,15 @@
         this.isPlaying = true;
         return;
       }
+      if (properties.audioElement) {
+        this.cancelFadeOut();
+        this.playStream(when);
+        return;
+      }
       if (!this.audioBuffer && !this.waveOptions) {
         console.error("No audio buffer or source available to play");
         return;
       }
-      const properties = soundProperties.get(this);
       const source = this.createSourceNode();
       if (!source || !source.start) {
         console.error("No source to play");
@@ -382,7 +467,47 @@
         properties.audioBuffer = null;
       this.events.trigger("ended", this);
     }
-    stop() {
+    stop(options = {}) {
+      const properties = soundProperties.get(this);
+      const { fade = 0 } = options;
+      if (fade > 0 && properties.isPlaying) {
+        return properties.fadeOut ? properties.fadeOut.promise : this.fadeOutAndStop(fade);
+      }
+      this.cancelFadeOut();
+      this.stopNow();
+      return Promise.resolve();
+    }
+    fadeOutAndStop(seconds) {
+      const properties = soundProperties.get(this);
+      const gain = properties.gainNode.gain;
+      const now = this.context.currentTime;
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(gain.value, now);
+      gain.linearRampToValueAtTime(0, now + seconds);
+      const state = { timer: null, promise: null };
+      properties.fadeOut = state;
+      state.promise = new Promise((resolve) => {
+        state.timer = setTimeout(() => {
+          properties.fadeOut = null;
+          gain.cancelScheduledValues(this.context.currentTime);
+          gain.value = properties.volume;
+          this.stopNow();
+          resolve();
+        }, seconds * 1000);
+      });
+      return state.promise;
+    }
+    cancelFadeOut() {
+      const properties = soundProperties.get(this);
+      if (!properties.fadeOut)
+        return;
+      clearTimeout(properties.fadeOut.timer);
+      properties.fadeOut = null;
+      const gain = properties.gainNode.gain;
+      gain.cancelScheduledValues(this.context.currentTime);
+      gain.value = properties.volume;
+    }
+    stopNow() {
       const properties = soundProperties.get(this);
       const wasPlaying = properties.isPlaying;
       this.events.trigger("stop", this);
@@ -390,10 +515,17 @@
       properties.voices.length = 0;
       const endedDuringTeardown = wasPlaying && !properties.isPlaying;
       properties.isPlaying = false;
-      if (properties.source && properties.mediaStream) {
-        properties.source.disconnect();
+      if (properties.audioElement) {
+        clearTimeout(properties.streamTimer);
+        properties.streamTimer = null;
+        properties.audioElement.pause();
+        properties.audioElement.currentTime = 0;
+      } else {
+        if (properties.source && properties.mediaStream) {
+          properties.source.disconnect();
+        }
+        properties.source = null;
       }
-      properties.source = null;
       if (this.mediaStream) {
         this.mediaStream.getTracks().forEach((track) => track.stop());
         this.mediaStream = null;
@@ -418,7 +550,9 @@
         polyphony: properties.polyphony,
         cache: properties.useCache
       };
-      if (properties.audioBuffer) {
+      if (properties.streamUrl) {
+        options.stream = properties.streamUrl;
+      } else if (properties.audioBuffer) {
         options.audioBuffer = properties.audioBuffer;
       } else if (properties.fileName) {
         options.file = properties.fileName;
@@ -547,6 +681,8 @@
     set loop(value) {
       const properties = soundProperties.get(this);
       properties.loop = value;
+      if (properties.audioElement)
+        properties.audioElement.loop = value;
     }
     get attack() {
       return soundProperties.get(this).attack;
@@ -574,6 +710,15 @@
     }
     get waveOptions() {
       return soundProperties.get(this).waveOptions;
+    }
+    get streamUrl() {
+      return soundProperties.get(this).streamUrl;
+    }
+    get audioElement() {
+      return soundProperties.get(this).audioElement;
+    }
+    get isStreaming() {
+      return soundProperties.get(this).audioElement !== null;
     }
     get voices() {
       return [...soundProperties.get(this).voices];
@@ -1105,11 +1250,11 @@
       await Promise.all(promises);
       this.events.trigger("play", this);
     }
-    async stop() {
+    async stop(options = {}) {
       this.events.trigger("stop", this);
       const promises = this.sounds.map(async (sound) => {
         if (sound.isPlaying) {
-          sound.stop();
+          await sound.stop(options);
         }
       });
       await Promise.all(promises);

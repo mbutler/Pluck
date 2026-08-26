@@ -14,7 +14,7 @@ export { default as Tempo } from './core/Tempo.js'
 export { default as PriorityQueue } from './core/PriorityQueue.js'
 export { default as Events } from './core/Events.js'
 
-export { default as bufferCache, BufferCache } from './core/BufferCache.js'
+export { default as bufferCache, BufferCache, bufferBytes } from './core/BufferCache.js'
 
 export {
   Effect,

@@ -133,6 +133,7 @@ sound is loaded before continuing.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `file` | — | URL to fetch and decode |
+| `stream` | — | URL to stream from an `<audio>` element instead of decoding |
 | `wave` | — | `{ type, frequency }` for an oscillator; type defaults to `'sine'`, frequency to `440` |
 | `input` | — | `true` to open the microphone, or an existing `MediaStream` to reuse |
 | `audioBuffer` | — | an already-decoded `AudioBuffer` |
@@ -154,7 +155,7 @@ With no source at all, a Sound defaults to a 440 Hz sine.
 | Method | Notes |
 | --- | --- |
 | `play({ when, fromGroup })` | `when` is an absolute time on the context clock; `0` or the past means now. `fromGroup` is set by `Group`. Scheduling yourself reads `sound.play({ when: time })` |
-| `stop()` | Cuts every voice, releases the microphone, fires `stop` then `ended` |
+| `stop({ fade })` | Cuts every voice, releases the microphone, fires `stop` then `ended`. With `fade` in seconds, ramps to silence on the audio clock first. Returns a promise that resolves once stopped |
 | `clone()` | A separate Sound sharing the decoded buffer and the context |
 | `fadeVolumeTo(value, duration)` | Ramps the sound's gain |
 | `applyAttack(startTime)` | Manual envelope on the sound's gain; per-voice attack is automatic |
@@ -174,6 +175,30 @@ is playing, then reads as the most recent voice's source.
 wave, then microphone stream — and carries every playback setting across. It
 shares the buffer rather than copying it, and reuses a microphone stream rather
 than prompting again.
+
+### Streaming long audio
+
+A decoded `AudioBuffer` is uncompressed float32. A ten-minute stereo file is
+roughly **220 MB** in memory and takes a couple of seconds to decode; several at
+once is more than a tab should be asked to hold. For music beds, ambient layers,
+or anything measured in minutes, stream instead:
+
+```js
+const bed = new Sound({ stream: 'ambient-wash.mp3', loop: true, attack: 5 })
+await bed.play()
+await bed.stop({ fade: 5 })
+```
+
+Measured on a ten-minute file: decoding cost **219 MB and 2.0 s**; streaming the
+same file was ready in **2 ms** and holds nothing.
+
+The trade is timing. A media element cannot be started at an exact time on the
+audio clock, so a streamed sound scheduled with `when` waits on a timer and
+lands within a few milliseconds rather than on the sample. That is fine for a
+pad and wrong for a snare. Streamed sounds also have no voices — the element is
+the one thing playing, so `polyphony` does not apply — and they are not cached,
+since there is nothing decoded to cache. Everything else works the same: volume,
+`attack` as a fade-in, effects, groups, and the `play` / `stop` / `ended` events.
 
 ## Polyphony
 
@@ -387,13 +412,28 @@ between them, and holds one buffer rather than one each. In-flight loads are
 shared too, so building a kit does not race into duplicate downloads.
 
 ```js
-import { bufferCache } from 'pluck'
+import { bufferCache, BufferCache } from 'pluck'
 
 bufferCache.size          // how many buffers are held
+bufferCache.bytes         // how much decoded audio, in bytes
 bufferCache.has(url)
 bufferCache.delete(url)   // drop one
 bufferCache.clear()       // release everything
 ```
+
+The shared cache is unbounded by default, which suits short samples. Anything
+working with longer audio should set a ceiling and use its own cache:
+
+```js
+const cache = new BufferCache({ maxBytes: 512 * 1024 * 1024 })
+```
+
+Eviction is least-recently-used, and `maxBytes` is the meaningful limit because
+decoded size varies enormously — a drum hit is a couple of hundred kilobytes and
+a fifteen-minute bed is over three hundred megabytes, so capping the *number* of
+buffers says almost nothing about memory. `maxSize` caps the count as well if
+you want it. A buffer too large for the ceiling is still returned to the caller;
+it simply is not retained.
 
 Pass `cache: false` to a Sound to bypass it. Note that `clearBuffer` drops only
 *that sound's* reference — the cache still holds the buffer, which is the point.
@@ -408,7 +448,7 @@ sound.events.off('ended', listener)
 
 | Emitter | Event | Arguments |
 | --- | --- | --- |
-| `Sound` | `play` | `(sound)` — a voice started |
+| `Sound` | `play` | `(sound)` — a voice or stream started |
 | | `stop` | `(sound)` — `stop()` was called |
 | | `ended` | `(sound)` — no longer sounding |
 | `Group` | `play`, `stop`, `ended` | `(group)` — once for the group, not per member |

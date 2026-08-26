@@ -64,6 +64,11 @@ class MockAudioParam {
     this.automation.push({ type: 'linearRampToValueAtTime', value, time })
     return this
   }
+
+  cancelScheduledValues(time) {
+    this.automation.push({ type: 'cancelScheduledValues', time })
+    return this
+  }
 }
 
 class MockGainNode extends MockAudioNode {
@@ -171,15 +176,23 @@ class MockConvolverNode extends MockAudioNode {
 }
 
 class MockAudioBuffer {
-  constructor(numberOfChannels, length, sampleRate) {
+  /**
+   * @param {boolean} sparse  skip allocating the sample arrays. Tests that only
+   *   care about reported size can ask for a fifteen-minute buffer without
+   *   actually reserving 300MB for it.
+   */
+  constructor(numberOfChannels, length, sampleRate, sparse = false) {
     this.numberOfChannels = numberOfChannels
     this.length = length
     this.sampleRate = sampleRate
     this.duration = length / sampleRate
-    this.channels = Array.from({ length: numberOfChannels }, () => new Float32Array(length))
+    this.channels = sparse
+      ? null
+      : Array.from({ length: numberOfChannels }, () => new Float32Array(length))
   }
 
   getChannelData(channel) {
+    if (!this.channels) throw new Error('sparse mock buffer has no sample data')
     return this.channels[channel]
   }
 }
@@ -188,6 +201,51 @@ class MockMediaStreamAudioSourceNode extends MockAudioNode {
   constructor(stream) {
     super('mediaStreamSource')
     this.mediaStream = stream
+  }
+}
+
+class MockMediaElementAudioSourceNode extends MockAudioNode {
+  constructor(element) {
+    super('mediaElementSource')
+    this.mediaElement = element
+  }
+}
+
+/** Stands in for an HTMLAudioElement used as a streaming source. */
+export class MockAudioElement {
+  constructor(src = '') {
+    this.src = src
+    this.loop = false
+    this.currentTime = 0
+    this.preload = 'auto'
+    this.crossOrigin = null
+    this.paused = true
+    this.playCalls = 0
+    this.pauseCalls = 0
+    this.listeners = {}
+  }
+
+  async play() {
+    this.playCalls++
+    this.paused = false
+  }
+
+  pause() {
+    this.pauseCalls++
+    this.paused = true
+  }
+
+  addEventListener(name, listener) {
+    (this.listeners[name] ||= []).push(listener)
+  }
+
+  removeEventListener(name, listener) {
+    this.listeners[name] = (this.listeners[name] || []).filter(l => l !== listener)
+  }
+
+  /** Test hook: fire an event as the browser would. */
+  emit(name) {
+    (this.listeners[name] || []).forEach(listener => listener())
   }
 }
 
@@ -227,6 +285,10 @@ export class MockAudioContext extends MockAudioNode {
 
   createMediaStreamSource(stream) {
     return new MockMediaStreamAudioSourceNode(stream)
+  }
+
+  createMediaElementSource(element) {
+    return new MockMediaElementAudioSourceNode(element)
   }
 
   createBiquadFilter() {
@@ -307,6 +369,10 @@ export const calls = {
 
 let fetchHandler = null
 let getUserMediaHandler = null
+let decodedSeconds = 1
+
+/** Sets how long the next decodeAudioData results claim to be. */
+export const setDecodedSeconds = seconds => { decodedSeconds = seconds }
 
 /** Controls what the next fetch() resolves to. Throw from here to fail a load. */
 export const onFetch = handler => { fetchHandler = handler }
@@ -336,9 +402,13 @@ export const installBrowserGlobals = () => {
 
   MockAudioContext.prototype.decodeAudioData = async function (arrayBuffer) {
     calls.decodeAudioData.push(arrayBuffer)
-    return { sampleRate: 44100, duration: 1, id: nextId++ }
+    // A real AudioBuffer, so cache byte accounting has something true to measure.
+    // decodedSeconds lets a test ask for a large buffer without allocating one.
+    const seconds = decodedSeconds
+    return new MockAudioBuffer(2, Math.floor(this.sampleRate * seconds), this.sampleRate, true)
   }
 
+  globalThis.Audio = MockAudioElement
   globalThis.requestAnimationFrame = () => 0
   globalThis.cancelAnimationFrame = () => {}
 }
@@ -356,6 +426,7 @@ export const resetMocks = () => {
   calls.decodeAudioData.length = 0
   fetchHandler = null
   getUserMediaHandler = null
+  decodedSeconds = 1
 }
 
 /* ------------------------------------------------------------------ *

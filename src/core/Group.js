@@ -48,14 +48,19 @@ class Group {
     this.events.trigger('play', this)
   }
 
-  async stop() {
+  /**
+   * @param {object} [options]
+   * @param {number} [options.fade=0]  seconds to ramp each member to silence
+   *   before stopping, for crossfading one set of layers into another.
+   */
+  async stop(options = {}) {
     // Announced before the members are stopped, so 'stop' precedes the 'ended'
     // their stopping triggers -- the same order a Sound uses.
     this.events.trigger('stop', this)
 
     const promises = this.sounds.map(async (sound) => {
       if (sound.isPlaying) {
-        sound.stop()
+        await sound.stop(options)
       }
     })
     await Promise.all(promises)
