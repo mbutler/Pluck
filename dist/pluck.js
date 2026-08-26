@@ -1,3 +1,14 @@
+var __defProp = Object.defineProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, {
+      get: all[name],
+      enumerable: true,
+      configurable: true,
+      set: (newValue) => all[name] = () => newValue
+    });
+};
+
 // src/core/Events.js
 class Events {
   constructor() {
@@ -71,6 +82,22 @@ class Voice {
   }
 }
 var Voice_default = Voice;
+
+// src/core/chain.js
+var rebuildChain = (head, effects, destinations) => {
+  head.disconnect();
+  effects.forEach((effect) => effect.output.disconnect());
+  let node = head;
+  for (const effect of effects) {
+    node.connect(effect.input);
+    node = effect.output;
+  }
+  destinations.forEach((destination) => {
+    if (destination)
+      node.connect(destination);
+  });
+  return node;
+};
 
 // src/core/BufferCache.js
 var fetchAndDecode = async (context, url) => {
@@ -148,6 +175,8 @@ class Sound {
       waveOptions: options.wave || null,
       output: audioContext.destination,
       useCache: options.cache !== false,
+      effects: [],
+      taps: new Set,
       polyphony: options.polyphony ?? 1,
       voices: []
     };
@@ -325,21 +354,68 @@ class Sound {
       setTimeout(callback, Math.max(0, delay));
     }
   }
+  get effects() {
+    return [...soundProperties.get(this).effects];
+  }
+  addEffect(effect, index = null) {
+    const properties = soundProperties.get(this);
+    if (properties.effects.includes(effect)) {
+      console.warn("Effect is already on this sound");
+      return effect;
+    }
+    if (index === null)
+      properties.effects.push(effect);
+    else
+      properties.effects.splice(index, 0, effect);
+    this.rebuildOutputChain();
+    return effect;
+  }
+  removeEffect(effect) {
+    const properties = soundProperties.get(this);
+    const index = properties.effects.indexOf(effect);
+    if (index === -1) {
+      console.warn("Effect is not on this sound");
+      return false;
+    }
+    properties.effects.splice(index, 1);
+    effect.input.disconnect();
+    effect.output.disconnect();
+    this.rebuildOutputChain();
+    return true;
+  }
+  clearEffects() {
+    const properties = soundProperties.get(this);
+    properties.effects.forEach((effect) => {
+      effect.input.disconnect();
+      effect.output.disconnect();
+    });
+    properties.effects.length = 0;
+    this.rebuildOutputChain();
+  }
+  rebuildOutputChain() {
+    const properties = soundProperties.get(this);
+    return rebuildChain(properties.gainNode, properties.effects, [properties.output, ...properties.taps]);
+  }
+  get outputNode() {
+    const properties = soundProperties.get(this);
+    const effects = properties.effects;
+    return effects.length ? effects[effects.length - 1].output : properties.gainNode;
+  }
   connect(node) {
     const properties = soundProperties.get(this);
-    if (properties.source) {
-      properties.source.connect(node);
-    } else {
-      console.error("No source to connect");
-    }
+    properties.taps.add(node);
+    this.outputNode.connect(node);
+    return node;
   }
   disconnect(node) {
     const properties = soundProperties.get(this);
-    if (properties.source) {
-      properties.source.disconnect(node);
-    } else {
-      console.error("No source to disconnect");
+    if (!node) {
+      properties.taps.forEach((tap) => this.outputNode.disconnect(tap));
+      properties.taps.clear();
+      return;
     }
+    properties.taps.delete(node);
+    this.outputNode.disconnect(node);
   }
   get fileName() {
     return soundProperties.get(this).fileName;
@@ -428,9 +504,8 @@ class Sound {
     const properties = soundProperties.get(this);
     if (properties.output === node)
       return;
-    properties.gainNode.disconnect();
     properties.output = node;
-    properties.gainNode.connect(node);
+    this.rebuildOutputChain();
   }
   get mediaStream() {
     return soundProperties.get(this).mediaStream;
@@ -919,7 +994,9 @@ class Group {
       sounds: [],
       volume: 1,
       muted: false,
-      previousVolume: 1
+      previousVolume: 1,
+      effects: [],
+      taps: new Set
     };
     groupProperties.set(this, properties);
   }
@@ -957,7 +1034,7 @@ class Group {
         console.error("Cannot add sound to group: mismatched audio contexts", sound);
         return;
       }
-      this.gainNode.connect(this.context.destination);
+      this.rebuildOutputChain();
       sound.isGrouped = true;
       sound.output = this.gainNode;
       this.sounds.push(sound);
@@ -973,8 +1050,71 @@ class Group {
     sound.output = sound.context.destination;
     this.sounds.splice(index, 1);
     if (this.sounds.length === 0) {
-      this.gainNode.disconnect(this.context.destination);
+      this.outputNode.disconnect(this.context.destination);
     }
+  }
+  get effects() {
+    return [...groupProperties.get(this).effects];
+  }
+  addEffect(effect, index = null) {
+    const properties = groupProperties.get(this);
+    if (properties.effects.includes(effect)) {
+      console.warn("Effect is already on this group");
+      return effect;
+    }
+    if (index === null)
+      properties.effects.push(effect);
+    else
+      properties.effects.splice(index, 0, effect);
+    this.rebuildOutputChain();
+    return effect;
+  }
+  removeEffect(effect) {
+    const properties = groupProperties.get(this);
+    const index = properties.effects.indexOf(effect);
+    if (index === -1) {
+      console.warn("Effect is not on this group");
+      return false;
+    }
+    properties.effects.splice(index, 1);
+    effect.input.disconnect();
+    effect.output.disconnect();
+    this.rebuildOutputChain();
+    return true;
+  }
+  clearEffects() {
+    const properties = groupProperties.get(this);
+    properties.effects.forEach((effect) => {
+      effect.input.disconnect();
+      effect.output.disconnect();
+    });
+    properties.effects.length = 0;
+    this.rebuildOutputChain();
+  }
+  rebuildOutputChain() {
+    const properties = groupProperties.get(this);
+    return rebuildChain(properties.gainNode, properties.effects, [properties.context.destination, ...properties.taps]);
+  }
+  get outputNode() {
+    const properties = groupProperties.get(this);
+    const effects = properties.effects;
+    return effects.length ? effects[effects.length - 1].output : properties.gainNode;
+  }
+  connect(node) {
+    const properties = groupProperties.get(this);
+    properties.taps.add(node);
+    this.outputNode.connect(node);
+    return node;
+  }
+  disconnect(node) {
+    const properties = groupProperties.get(this);
+    if (!node) {
+      properties.taps.forEach((tap) => this.outputNode.disconnect(tap));
+      properties.taps.clear();
+      return;
+    }
+    properties.taps.delete(node);
+    this.outputNode.disconnect(node);
   }
   fadeVolumeTo(value, duration = 1) {
     const currentTime = this.context.currentTime;
@@ -1024,6 +1164,330 @@ class Group {
 }
 var Group_default = Group;
 
+// src/core/effects/index.js
+var exports_effects = {};
+__export(exports_effects, {
+  Tremolo: () => Tremolo_default,
+  StereoPanner: () => StereoPanner_default,
+  Reverb: () => Reverb_default,
+  LowPassFilter: () => LowPassFilter,
+  HighPassFilter: () => HighPassFilter,
+  Filter: () => Filter_default,
+  Effect: () => Effect_default,
+  Distortion: () => Distortion_default,
+  Delay: () => Delay_default,
+  Compressor: () => Compressor_default
+});
+
+// src/core/effects/Effect.js
+class Effect {
+  constructor(context, options = {}) {
+    this.context = context;
+    this.input = context.createGain();
+    this.output = context.createGain();
+    this.dryGain = context.createGain();
+    this.wetGain = context.createGain();
+    this.input.connect(this.dryGain);
+    this.dryGain.connect(this.output);
+    this.wetGain.connect(this.output);
+    this.mixBeforeBypass = null;
+    this.mix = options.mix ?? 1;
+  }
+  route(head, tail) {
+    this.input.connect(head);
+    tail.connect(this.wetGain);
+  }
+  get mix() {
+    return this.wetGain.gain.value;
+  }
+  set mix(value) {
+    const amount = Math.min(1, Math.max(0, value));
+    this.wetGain.gain.value = amount;
+    this.dryGain.gain.value = 1 - amount;
+  }
+  get bypassed() {
+    return this.mixBeforeBypass !== null;
+  }
+  set bypassed(value) {
+    if (value === this.bypassed)
+      return;
+    if (value) {
+      this.mixBeforeBypass = this.mix;
+      this.mix = 0;
+      return;
+    }
+    this.mix = this.mixBeforeBypass;
+    this.mixBeforeBypass = null;
+  }
+  dispose() {
+    this.input.disconnect();
+    this.output.disconnect();
+    this.dryGain.disconnect();
+    this.wetGain.disconnect();
+  }
+}
+var Effect_default = Effect;
+
+// src/core/effects/Filter.js
+class Filter extends Effect_default {
+  constructor(context, options = {}) {
+    super(context, options);
+    this.filter = context.createBiquadFilter();
+    this.filter.type = options.type || "lowpass";
+    this.filter.frequency.value = options.frequency ?? 1000;
+    this.filter.Q.value = options.q ?? 1;
+    if (options.gain !== undefined)
+      this.filter.gain.value = options.gain;
+    this.route(this.filter, this.filter);
+  }
+  get type() {
+    return this.filter.type;
+  }
+  set type(value) {
+    this.filter.type = value;
+  }
+  get frequency() {
+    return this.filter.frequency.value;
+  }
+  set frequency(value) {
+    this.filter.frequency.value = value;
+  }
+  get q() {
+    return this.filter.Q.value;
+  }
+  set q(value) {
+    this.filter.Q.value = value;
+  }
+}
+
+class LowPassFilter extends Filter {
+  constructor(context, options = {}) {
+    super(context, { ...options, type: "lowpass" });
+  }
+}
+
+class HighPassFilter extends Filter {
+  constructor(context, options = {}) {
+    super(context, { ...options, type: "highpass" });
+  }
+}
+var Filter_default = Filter;
+
+// src/core/effects/Delay.js
+class Delay extends Effect_default {
+  constructor(context, options = {}) {
+    super(context, { mix: options.mix ?? 0.5 });
+    const maxTime = options.maxTime ?? 5;
+    this.delay = context.createDelay(maxTime);
+    this.delay.delayTime.value = Math.min(options.time ?? 0.3, maxTime);
+    this.feedbackGain = context.createGain();
+    this.feedbackGain.gain.value = Math.min(options.feedback ?? 0.4, 0.95);
+    this.delay.connect(this.feedbackGain);
+    this.feedbackGain.connect(this.delay);
+    this.route(this.delay, this.delay);
+  }
+  get time() {
+    return this.delay.delayTime.value;
+  }
+  set time(value) {
+    this.delay.delayTime.value = value;
+  }
+  get feedback() {
+    return this.feedbackGain.gain.value;
+  }
+  set feedback(value) {
+    this.feedbackGain.gain.value = Math.min(Math.max(value, 0), 0.95);
+  }
+}
+var Delay_default = Delay;
+
+// src/core/effects/Distortion.js
+var CURVE_SAMPLES = 2048;
+var buildCurve = (amount) => {
+  const k = amount * 100;
+  const curve = new Float32Array(CURVE_SAMPLES);
+  const deg = Math.PI / 180;
+  for (let i = 0;i < CURVE_SAMPLES; i++) {
+    const x = i * 2 / CURVE_SAMPLES - 1;
+    curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+  }
+  return curve;
+};
+
+class Distortion extends Effect_default {
+  constructor(context, options = {}) {
+    super(context, options);
+    this.shaper = context.createWaveShaper();
+    this.shaper.oversample = options.oversample || "4x";
+    this.amountValue = options.amount ?? 0.4;
+    this.shaper.curve = buildCurve(this.amountValue);
+    this.route(this.shaper, this.shaper);
+  }
+  get amount() {
+    return this.amountValue;
+  }
+  set amount(value) {
+    this.amountValue = Math.min(Math.max(value, 0), 1);
+    this.shaper.curve = buildCurve(this.amountValue);
+  }
+}
+var Distortion_default = Distortion;
+
+// src/core/effects/Compressor.js
+class Compressor extends Effect_default {
+  constructor(context, options = {}) {
+    super(context, options);
+    this.compressor = context.createDynamicsCompressor();
+    this.compressor.threshold.value = options.threshold ?? -24;
+    this.compressor.knee.value = options.knee ?? 30;
+    this.compressor.ratio.value = options.ratio ?? 12;
+    this.compressor.attack.value = options.attack ?? 0.003;
+    this.compressor.release.value = options.release ?? 0.25;
+    this.route(this.compressor, this.compressor);
+  }
+  get threshold() {
+    return this.compressor.threshold.value;
+  }
+  set threshold(value) {
+    this.compressor.threshold.value = value;
+  }
+  get knee() {
+    return this.compressor.knee.value;
+  }
+  set knee(value) {
+    this.compressor.knee.value = value;
+  }
+  get ratio() {
+    return this.compressor.ratio.value;
+  }
+  set ratio(value) {
+    this.compressor.ratio.value = value;
+  }
+  get attack() {
+    return this.compressor.attack.value;
+  }
+  set attack(value) {
+    this.compressor.attack.value = value;
+  }
+  get release() {
+    return this.compressor.release.value;
+  }
+  set release(value) {
+    this.compressor.release.value = value;
+  }
+}
+var Compressor_default = Compressor;
+
+// src/core/effects/StereoPanner.js
+class StereoPanner extends Effect_default {
+  constructor(context, options = {}) {
+    super(context, options);
+    this.panner = context.createStereoPanner();
+    this.panner.pan.value = Math.min(Math.max(options.pan ?? 0, -1), 1);
+    this.route(this.panner, this.panner);
+  }
+  get pan() {
+    return this.panner.pan.value;
+  }
+  set pan(value) {
+    this.panner.pan.value = Math.min(Math.max(value, -1), 1);
+  }
+}
+var StereoPanner_default = StereoPanner;
+
+// src/core/effects/Tremolo.js
+class Tremolo extends Effect_default {
+  constructor(context, options = {}) {
+    super(context, options);
+    const depth = Math.min(Math.max(options.depth ?? 0.5, 0), 0.5);
+    this.tremoloGain = context.createGain();
+    this.tremoloGain.gain.value = 1 - depth;
+    this.lfo = context.createOscillator();
+    this.lfo.type = options.wave || "sine";
+    this.lfo.frequency.value = options.speed ?? 5;
+    this.depthGain = context.createGain();
+    this.depthGain.gain.value = depth;
+    this.lfo.connect(this.depthGain);
+    this.depthGain.connect(this.tremoloGain.gain);
+    this.lfo.start();
+    this.route(this.tremoloGain, this.tremoloGain);
+  }
+  get speed() {
+    return this.lfo.frequency.value;
+  }
+  set speed(value) {
+    this.lfo.frequency.value = value;
+  }
+  get depth() {
+    return this.depthGain.gain.value;
+  }
+  set depth(value) {
+    const depth = Math.min(Math.max(value, 0), 0.5);
+    this.depthGain.gain.value = depth;
+    this.tremoloGain.gain.value = 1 - depth;
+  }
+  dispose() {
+    this.lfo.stop();
+    this.lfo.disconnect();
+    this.depthGain.disconnect();
+    this.tremoloGain.disconnect();
+    super.dispose();
+  }
+}
+var Tremolo_default = Tremolo;
+
+// src/core/effects/Reverb.js
+var buildImpulse = (context, seconds, decay, reverse) => {
+  const rate = context.sampleRate;
+  const length = Math.max(1, Math.floor(rate * seconds));
+  const impulse = context.createBuffer(2, length, rate);
+  for (let channel = 0;channel < impulse.numberOfChannels; channel++) {
+    const samples = impulse.getChannelData(channel);
+    for (let i = 0;i < length; i++) {
+      const n = reverse ? length - i : i;
+      samples[i] = (Math.random() * 2 - 1) * Math.pow(1 - n / length, decay);
+    }
+  }
+  return impulse;
+};
+
+class Reverb extends Effect_default {
+  constructor(context, options = {}) {
+    super(context, { mix: options.mix ?? 0.5 });
+    this.timeValue = options.time ?? 2;
+    this.decayValue = options.decay ?? 2;
+    this.reverseValue = options.reverse ?? false;
+    this.convolver = context.createConvolver();
+    this.convolver.buffer = buildImpulse(context, this.timeValue, this.decayValue, this.reverseValue);
+    this.route(this.convolver, this.convolver);
+  }
+  get time() {
+    return this.timeValue;
+  }
+  set time(value) {
+    this.timeValue = Math.max(value, 0.01);
+    this.rebuildImpulse();
+  }
+  get decay() {
+    return this.decayValue;
+  }
+  set decay(value) {
+    this.decayValue = value;
+    this.rebuildImpulse();
+  }
+  get reverse() {
+    return this.reverseValue;
+  }
+  set reverse(value) {
+    this.reverseValue = value;
+    this.rebuildImpulse();
+  }
+  rebuildImpulse() {
+    this.convolver.buffer = buildImpulse(this.context, this.timeValue, this.decayValue, this.reverseValue);
+  }
+}
+var Reverb_default = Reverb;
+
 // src/index.js
 var Pluck = {
   Timeline: Timeline_default,
@@ -1032,6 +1496,7 @@ var Pluck = {
   Voice: Voice_default,
   Tempo: Tempo_default,
   BufferCache,
+  ...exports_effects,
   bufferCache: BufferCache_default
 };
 window.Pluck = Pluck;

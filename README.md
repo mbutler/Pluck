@@ -42,7 +42,7 @@ Pluck.js is a modern, lightweight, and efficient JavaScript sound library design
     - core/ (Core classes and utilities)
       - Sound.js
       - Group.js
-      - Effects.js
+      - effects/
       - Util.js
     - index.js (Entry point)
   - test/ (Tests)
@@ -53,6 +53,7 @@ Pluck.js is a modern, lightweight, and efficient JavaScript sound library design
     - Group.test.js
     - Timeline.test.js
     - Tempo.test.js
+    - Effects.test.js
     - BufferCache.test.js
     - PriorityQueue.test.js
     - Events.test.js
@@ -131,8 +132,25 @@ Pluck.js is a modern, lightweight, and efficient JavaScript sound library design
     change it. `currentBeat`, `currentBar`, `at(bar, beat)`, `nextBeat()` and
     `nextBar()` cover the usual position arithmetic.
 
-- **Effects.js**
-  - Provides a base for adding effects to sounds.
+- **effects/**
+  - `Effect.js` is the base class and the contract anything pluggable meets: an
+    `input` node to connect into and an `output` node to connect from. It builds
+    the dry/wet split, so a subclass creates its own nodes and calls
+    `route(head, tail)` once to drop them into the wet path.
+  - Built in: `Filter` (plus `LowPassFilter` / `HighPassFilter`), `Delay`,
+    `Distortion`, `Compressor`, `StereoPanner`, `Tremolo`, `Reverb`. All are
+    built from native Web Audio nodes, and `Reverb` generates its impulse
+    response rather than loading one, so no effect needs an asset.
+  - Effects attach with `sound.addEffect(effect)` / `removeEffect` /
+    `clearEffects`, and chain in the order added. They sit *after* the sound's
+    gain node, so there is one instance per sound rather than per voice and a
+    delay or reverb tail outlives the voice that fed it.
+  - `group.addEffect(effect)` does the same for a whole group — one reverb for
+    the kit rather than one per drum. A sound keeps its own effects inside a
+    group; the two chains compose.
+  - `sound.connect(node)` sends the sound's output somewhere additional (an
+    analyser, a recorder, a send bus). The connection is re-established whenever
+    the chain is rebuilt, so it survives adding effects and replaying.
 
 - **Util.js**
   - Utility functions for common tasks such as type checking and range validation.
@@ -154,8 +172,8 @@ bun test
     last set value rather than a ramp in progress.
 
 - **Sound.test.js**, **Voice.test.js**, **Group.test.js**, **Timeline.test.js**,
-  **Tempo.test.js**, **BufferCache.test.js**, **PriorityQueue.test.js**,
-  **Events.test.js**
+  **Tempo.test.js**, **Effects.test.js**, **BufferCache.test.js**,
+  **PriorityQueue.test.js**, **Events.test.js**
   - Run against the mock under Bun's test runner, so they need no browser and
     finish in well under a second.
 

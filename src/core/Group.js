@@ -1,4 +1,5 @@
 import Sound from './Sound.js'
+import { rebuildChain } from './chain.js'
 
 var groupProperties = new WeakMap;
 
@@ -18,6 +19,10 @@ class Group {
       volume: 1,
       muted: false,
       previousVolume: 1,
+      // A group's effects process every sound in it at once, which is the
+      // point of a bus: one reverb for the kit, not one per drum.
+      effects: [],
+      taps: new Set()
     }
     
     groupProperties.set(this, properties)    
@@ -63,7 +68,7 @@ class Group {
       }
 
       // removeSound() unhooks the group once it empties; re-hook it here.
-      this.gainNode.connect(this.context.destination)
+      this.rebuildOutputChain()
 
       sound.isGrouped = true
       sound.output = this.gainNode
@@ -81,8 +86,88 @@ class Group {
     sound.output = sound.context.destination
     this.sounds.splice(index, 1)
     if (this.sounds.length === 0) {
-      this.gainNode.disconnect(this.context.destination)
+      this.outputNode.disconnect(this.context.destination)
     }
+  }
+
+  /* ---- effects --------------------------------------------------------- */
+
+  /** The effects on this group, in signal order. */
+  get effects() {
+    return [...groupProperties.get(this).effects]
+  }
+
+  addEffect(effect, index = null) {
+    const properties = groupProperties.get(this)
+    if (properties.effects.includes(effect)) {
+      console.warn('Effect is already on this group')
+      return effect
+    }
+
+    if (index === null) properties.effects.push(effect)
+    else properties.effects.splice(index, 0, effect)
+
+    this.rebuildOutputChain()
+    return effect
+  }
+
+  removeEffect(effect) {
+    const properties = groupProperties.get(this)
+    const index = properties.effects.indexOf(effect)
+    if (index === -1) {
+      console.warn('Effect is not on this group')
+      return false
+    }
+
+    properties.effects.splice(index, 1)
+    effect.input.disconnect()
+    effect.output.disconnect()
+    this.rebuildOutputChain()
+    return true
+  }
+
+  clearEffects() {
+    const properties = groupProperties.get(this)
+    properties.effects.forEach(effect => {
+      effect.input.disconnect()
+      effect.output.disconnect()
+    })
+    properties.effects.length = 0
+    this.rebuildOutputChain()
+  }
+
+  rebuildOutputChain() {
+    const properties = groupProperties.get(this)
+    return rebuildChain(
+      properties.gainNode,
+      properties.effects,
+      [properties.context.destination, ...properties.taps]
+    )
+  }
+
+  /** The last node in the chain: this group's actual output. */
+  get outputNode() {
+    const properties = groupProperties.get(this)
+    const effects = properties.effects
+    return effects.length ? effects[effects.length - 1].output : properties.gainNode
+  }
+
+  connect(node) {
+    const properties = groupProperties.get(this)
+    properties.taps.add(node)
+    this.outputNode.connect(node)
+    return node
+  }
+
+  disconnect(node) {
+    const properties = groupProperties.get(this)
+    if (!node) {
+      properties.taps.forEach(tap => this.outputNode.disconnect(tap))
+      properties.taps.clear()
+      return
+    }
+    properties.taps.delete(node)
+    this.outputNode.disconnect(node)
   }
 
   fadeVolumeTo(value, duration = 1) {

@@ -27,8 +27,10 @@ class MockAudioNode {
   }
 
   connect(destination) {
+    // An AudioParam is a valid target: that is how modulation is wired, e.g. an
+    // LFO into a gain's .gain. Params carry a label for exactly this reason.
     if (!destination || typeof destination.label !== 'string') {
-      throw new TypeError('Failed to execute connect: parameter is not an AudioNode')
+      throw new TypeError('Failed to execute connect: parameter is not an AudioNode or AudioParam')
     }
     edges.add(edgeKey(this, destination))
     return destination
@@ -49,6 +51,7 @@ class MockAudioParam {
   constructor(value) {
     this.value = value
     this.automation = []
+    this.label = `param#${nextId++}`
   }
 
   setValueAtTime(value, time) {
@@ -113,6 +116,74 @@ class MockOscillatorNode extends MockAudioScheduledSourceNode {
   }
 }
 
+class MockBiquadFilterNode extends MockAudioNode {
+  constructor() {
+    super('biquadFilter')
+    this.type = 'lowpass'
+    this.frequency = new MockAudioParam(350)
+    this.Q = new MockAudioParam(1)
+    this.gain = new MockAudioParam(0)
+    this.detune = new MockAudioParam(0)
+  }
+}
+
+class MockDelayNode extends MockAudioNode {
+  constructor(maxDelayTime = 1) {
+    super('delay')
+    this.maxDelayTime = maxDelayTime
+    this.delayTime = new MockAudioParam(0)
+  }
+}
+
+class MockWaveShaperNode extends MockAudioNode {
+  constructor() {
+    super('waveShaper')
+    this.curve = null
+    this.oversample = 'none'
+  }
+}
+
+class MockDynamicsCompressorNode extends MockAudioNode {
+  constructor() {
+    super('compressor')
+    this.threshold = new MockAudioParam(-24)
+    this.knee = new MockAudioParam(30)
+    this.ratio = new MockAudioParam(12)
+    this.attack = new MockAudioParam(0.003)
+    this.release = new MockAudioParam(0.25)
+    this.reduction = 0
+  }
+}
+
+class MockStereoPannerNode extends MockAudioNode {
+  constructor() {
+    super('stereoPanner')
+    this.pan = new MockAudioParam(0)
+  }
+}
+
+class MockConvolverNode extends MockAudioNode {
+  constructor() {
+    super('convolver')
+    this.buffer = null
+    this.normalize = true
+  }
+}
+
+class MockAudioBuffer {
+  constructor(numberOfChannels, length, sampleRate) {
+    this.numberOfChannels = numberOfChannels
+    this.length = length
+    this.sampleRate = sampleRate
+    this.duration = length / sampleRate
+    this.channels = Array.from({ length: numberOfChannels }, () => new Float32Array(length))
+  }
+
+  getChannelData(channel) {
+    return this.channels[channel]
+  }
+}
+
 class MockMediaStreamAudioSourceNode extends MockAudioNode {
   constructor(stream) {
     super('mediaStreamSource')
@@ -135,6 +206,7 @@ export class MockAudioContext extends MockAudioNode {
   constructor() {
     super('context')
     this.state = 'running'
+    this.sampleRate = 44100
     this.currentTime = 0
     this.destination = new MockAudioNode('destination')
     this.resumeCalls = 0
@@ -155,6 +227,34 @@ export class MockAudioContext extends MockAudioNode {
 
   createMediaStreamSource(stream) {
     return new MockMediaStreamAudioSourceNode(stream)
+  }
+
+  createBiquadFilter() {
+    return new MockBiquadFilterNode()
+  }
+
+  createDelay(maxDelayTime = 1) {
+    return new MockDelayNode(maxDelayTime)
+  }
+
+  createWaveShaper() {
+    return new MockWaveShaperNode()
+  }
+
+  createDynamicsCompressor() {
+    return new MockDynamicsCompressorNode()
+  }
+
+  createStereoPanner() {
+    return new MockStereoPannerNode()
+  }
+
+  createConvolver() {
+    return new MockConvolverNode()
+  }
+
+  createBuffer(numberOfChannels, length, sampleRate) {
+    return new MockAudioBuffer(numberOfChannels, length, sampleRate)
   }
 
   async resume() {

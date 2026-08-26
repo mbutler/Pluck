@@ -1,5 +1,6 @@
 import Events from './Events.js'
 import Voice from './Voice.js'
+import { rebuildChain } from './chain.js'
 import bufferCache, { fetchAndDecode } from './BufferCache.js'
 
 const soundProperties = new WeakMap()
@@ -33,6 +34,13 @@ class Sound {
       waveOptions: options.wave || null,
       output: audioContext.destination,
       useCache: options.cache !== false,
+      // Effects sit after the sound's gain node, so there is one instance per
+      // sound rather than per voice, and a delay or reverb tail outlives the
+      // voice that fed it.
+      effects: [],
+      // Extra destinations added with connect(), re-established whenever the
+      // chain is rebuilt.
+      taps: new Set(),
       // How many instances of this sound may ring at once. The default of 1
       // restarts on replay; raising it lets hits overlap.
       polyphony: options.polyphony ?? 1,
@@ -277,22 +285,94 @@ class Sound {
     }
   }
 
+  /* ---- effects --------------------------------------------------------- */
+
+  /** The effects on this sound, in signal order. */
+  get effects() {
+    return [...soundProperties.get(this).effects]
+  }
+
+  /**
+   * Appends an effect to the chain, or inserts it at `index`.
+   * @returns {Effect} the effect, so it can be kept and adjusted
+   */
+  addEffect(effect, index = null) {
+    const properties = soundProperties.get(this)
+    if (properties.effects.includes(effect)) {
+      console.warn('Effect is already on this sound')
+      return effect
+    }
+
+    if (index === null) properties.effects.push(effect)
+    else properties.effects.splice(index, 0, effect)
+
+    this.rebuildOutputChain()
+    return effect
+  }
+
+  removeEffect(effect) {
+    const properties = soundProperties.get(this)
+    const index = properties.effects.indexOf(effect)
+    if (index === -1) {
+      console.warn('Effect is not on this sound')
+      return false
+    }
+
+    properties.effects.splice(index, 1)
+    effect.input.disconnect()
+    effect.output.disconnect()
+    this.rebuildOutputChain()
+    return true
+  }
+
+  clearEffects() {
+    const properties = soundProperties.get(this)
+    properties.effects.forEach(effect => {
+      effect.input.disconnect()
+      effect.output.disconnect()
+    })
+    properties.effects.length = 0
+    this.rebuildOutputChain()
+  }
+
+  /** Rewires gain -> effects -> output, plus any taps added with connect(). */
+  rebuildOutputChain() {
+    const properties = soundProperties.get(this)
+    return rebuildChain(
+      properties.gainNode,
+      properties.effects,
+      [properties.output, ...properties.taps]
+    )
+  }
+
+  /** The last node in the chain: this sound's actual output. */
+  get outputNode() {
+    const properties = soundProperties.get(this)
+    const effects = properties.effects
+    return effects.length ? effects[effects.length - 1].output : properties.gainNode
+  }
+
+  /**
+   * Sends this sound's output to another node as well as to its usual
+   * destination -- an analyser, a recorder, a send bus. The connection survives
+   * changes to the effects chain.
+   */
   connect(node) {
     const properties = soundProperties.get(this)
-    if (properties.source) {
-      properties.source.connect(node)
-    } else {
-      console.error('No source to connect')
-    }
+    properties.taps.add(node)
+    this.outputNode.connect(node)
+    return node
   }
-  
+
   disconnect(node) {
     const properties = soundProperties.get(this)
-    if (properties.source) {
-      properties.source.disconnect(node)
-    } else {
-      console.error('No source to disconnect')
+    if (!node) {
+      properties.taps.forEach(tap => this.outputNode.disconnect(tap))
+      properties.taps.clear()
+      return
     }
+    properties.taps.delete(node)
+    this.outputNode.disconnect(node)
   }
 
   get fileName() {
@@ -411,9 +491,8 @@ class Sound {
   set output(node) {
     const properties = soundProperties.get(this)
     if (properties.output === node) return
-    properties.gainNode.disconnect()
     properties.output = node
-    properties.gainNode.connect(node)
+    this.rebuildOutputChain()
   }
 
   get mediaStream() {
