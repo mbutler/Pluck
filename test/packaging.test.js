@@ -76,6 +76,17 @@ describe('package metadata', () => {
   test('has no runtime dependencies', () => {
     expect(packageJson.dependencies).toBeUndefined()
   })
+
+  test('declares a license and ships the file', async () => {
+    expect(packageJson.license).toBe('MIT')
+    expect(packageJson.files).toContain('LICENSE')
+
+    const license = await Bun.file('LICENSE').text()
+    expect(license).toContain('MIT License')
+    expect(license).toContain('Copyright (c)')
+    expect(license).toContain(packageJson.author)
+    expect(license).toContain('THE SOFTWARE IS PROVIDED "AS IS"')
+  })
 })
 
 describe('environments without Web Audio', () => {

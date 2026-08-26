@@ -496,4 +496,4 @@ measuring the samples.
 
 ## License
 
-None yet. Add a `LICENSE` file before publishing.
+MIT. See [LICENSE](LICENSE).

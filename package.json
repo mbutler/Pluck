@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "description": "A modern, dependency-free JavaScript sound library built on the Web Audio API, with audio-clock scheduling, musical time, polyphony and effects.",
   "type": "module",
+  "license": "MIT",
+  "author": "Matthew Butler",
   "main": "./dist/pluck.esm.js",
   "module": "./dist/pluck.esm.js",
   "exports": {
@@ -23,7 +25,8 @@
     "dist/pluck.esm.js",
     "dist/pluck.min.js",
     "src",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "keywords": [
     "audio",
