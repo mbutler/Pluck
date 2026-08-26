@@ -38,7 +38,7 @@ class Group {
     const promises = this.sounds.map(async (sound) => {
       if (!sound.isPlaying) {
         try {
-          await sound.play(true)
+          await sound.play({ fromGroup: true })
         } catch (error) {
           console.error("Error playing sound:", error)
         }

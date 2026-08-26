@@ -494,3 +494,59 @@ describe('clone', () => {
     expect(pathExists(copy.source, context.destination)).toBe(true)
   })
 })
+
+describe('play options', () => {
+  test('takes when as an option', async () => {
+    const sound = bufferedSound()
+    await sound.play({ when: 3 })
+
+    expect(sound.source.startCalls[0].when).toBe(3)
+  })
+
+  test('defaults to starting now', async () => {
+    const sound = bufferedSound()
+    context.currentTime = 5
+    await sound.play()
+
+    expect(sound.source.startCalls[0].when).toBe(5)
+  })
+
+  test('a time in the past starts now', async () => {
+    const sound = bufferedSound()
+    context.currentTime = 5
+    await sound.play({ when: 1 })
+
+    expect(sound.source.startCalls[0].when).toBe(5)
+  })
+
+  test('fromGroup lets a grouped sound play', async () => {
+    const sound = bufferedSound()
+    await sound.initialized
+    sound.isGrouped = true
+
+    await sound.play()
+    expect(sound.isPlaying).toBe(false)
+    expect(console_.saw('warn', 'It is in a group')).toBe(true)
+
+    await sound.play({ fromGroup: true })
+    expect(sound.isPlaying).toBe(true)
+  })
+
+  test('options can be combined', async () => {
+    const sound = bufferedSound()
+    sound.isGrouped = true
+
+    await sound.play({ when: 4, fromGroup: true })
+
+    expect(sound.source.startCalls[0].when).toBe(4)
+  })
+
+  // The old signature was play(fromGroup, when). Destructuring a boolean would
+  // silently drop both arguments, so the mistake is made loud instead.
+  test('the old positional signature throws rather than misbehaving', async () => {
+    const sound = bufferedSound()
+
+    expect(sound.play(true)).rejects.toThrow('play() takes an options object')
+    expect(sound.play(false)).rejects.toThrow('play() takes an options object')
+  })
+})

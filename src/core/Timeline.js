@@ -118,7 +118,7 @@ class Timeline {
       // Not awaited: the sound only has to reach source.start() before `when`
       // arrives, and awaiting here would serialise sounds meant to be
       // simultaneous.
-      Promise.resolve(sound.play(false, when))
+      Promise.resolve(sound.play({ when }))
         .catch(error => console.error('Error playing scheduled sound:', error))
         .finally(() => { tracked.ready = true })
 

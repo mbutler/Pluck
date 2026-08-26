@@ -250,7 +250,11 @@ class Sound {
       console.error("No source to connect to gain node");
     }
   }
-  async play(fromGroup = false, when = 0) {
+  async play(options = {}) {
+    if (typeof options !== "object" || options === null) {
+      throw new TypeError("play() takes an options object, e.g. play({ when: time })");
+    }
+    const { when = 0, fromGroup = false } = options;
     if (this.isGrouped && !fromGroup) {
       console.warn(`Cannot play the sound ${this.fileName} directly. It is in a group.`);
       return;
@@ -758,7 +762,7 @@ class Timeline {
       const when = Math.max(time, now);
       const tracked = { sound, ready: false };
       properties.active.add(tracked);
-      Promise.resolve(sound.play(false, when)).catch((error) => console.error("Error playing scheduled sound:", error)).finally(() => {
+      Promise.resolve(sound.play({ when })).catch((error) => console.error("Error playing scheduled sound:", error)).finally(() => {
         tracked.ready = true;
       });
       this.events.trigger("play", sound, when, beat);
@@ -1015,7 +1019,7 @@ class Group {
     const promises = this.sounds.map(async (sound) => {
       if (!sound.isPlaying) {
         try {
-          await sound.play(true);
+          await sound.play({ fromGroup: true });
         } catch (error) {
           console.error("Error playing sound:", error);
         }

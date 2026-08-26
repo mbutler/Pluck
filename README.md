@@ -82,7 +82,7 @@ playButton.addEventListener('click', async () => {
   kick.addEffect(new Reverb(timeline.context, { time: 1.2, mix: 0.15 }))
 
   // Called ahead of each beat with the exact time to schedule for.
-  timeline.everyBeat(1, time => kick.play(false, time))
+  timeline.everyBeat(1, time => kick.play({ when: time }))
 
   // Or place something at a bar and beat.
   timeline.scheduleBar(kick.clone(), 4, 2)
@@ -153,7 +153,7 @@ With no source at all, a Sound defaults to a 440 Hz sine.
 
 | Method | Notes |
 | --- | --- |
-| `play(fromGroup, when)` | `when` is an absolute time on the context clock; `0` or the past means now. Pass `false` for `fromGroup` when scheduling yourself: `sound.play(false, time)` |
+| `play({ when, fromGroup })` | `when` is an absolute time on the context clock; `0` or the past means now. `fromGroup` is set by `Group`. Scheduling yourself reads `sound.play({ when: time })` |
 | `stop()` | Cuts every voice, releases the microphone, fires `stop` then `ended` |
 | `clone()` | A separate Sound sharing the decoded buffer and the context |
 | `fadeVolumeTo(value, duration)` | Ramps the sound's gain |
@@ -306,8 +306,8 @@ at that time rather than play when it runs:
 
 ```js
 timeline.everyBeat(0.25, (time, beat) => {
-  if (beat % 1 === 0) kick.play(false, time)
-  hat.play(false, time)
+  if (beat % 1 === 0) kick.play({ when: time })
+  hat.play({ when: time })
 })
 ```
 

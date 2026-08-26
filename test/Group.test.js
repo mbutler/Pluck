@@ -423,7 +423,7 @@ describe('events', () => {
     group.events.on('ended', () => ended++)
 
     await group.play()
-    await sound.play(true)
+    await sound.play({ fromGroup: true })
     const voices = sound.voices
 
     voices[0].source.onended()

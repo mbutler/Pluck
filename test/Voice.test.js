@@ -106,9 +106,9 @@ describe('overlapping voices', () => {
 
   test('overlapping voices start at their own scheduled times', async () => {
     const sound = bufferedSound({ polyphony: 3 })
-    await sound.play(false, 1)
-    await sound.play(false, 1.5)
-    await sound.play(false, 2)
+    await sound.play({ when: 1 })
+    await sound.play({ when: 1.5 })
+    await sound.play({ when: 2 })
 
     expect(sound.voices.map(voice => voice.source.startCalls[0].when)).toEqual([1, 1.5, 2])
   })
@@ -230,7 +230,7 @@ describe('lifecycle', () => {
 
   test('stopping a voice scheduled but not yet started does not throw', async () => {
     const sound = bufferedSound({ polyphony: 1 })
-    await sound.play(false, 100)
+    await sound.play({ when: 100 })
 
     expect(() => sound.stop()).not.toThrow()
   })
@@ -253,7 +253,7 @@ describe('inside a group', () => {
     group.addSounds([sound])
 
     await group.play()
-    await sound.play(true)
+    await sound.play({ fromGroup: true })
 
     expect(sound.voices.length).toBe(2)
     for (const voice of sound.voices) {

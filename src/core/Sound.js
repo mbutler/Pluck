@@ -135,14 +135,23 @@ class Sound {
   }
 
   /**
-   * @param {boolean} fromGroup  set by Group; grouped sounds refuse direct play
-   * @param {number} when        absolute context time to start at. Anything at
-   *                             or before now starts immediately, which is the
-   *                             default. Scheduling ahead is what lets the
-   *                             Timeline place sounds on the audio clock
-   *                             instead of on a frame boundary.
+   * @param {object}  [options]
+   * @param {number}  [options.when=0]  absolute time on the context clock to
+   *   start at. Anything at or before now starts immediately, which is the
+   *   default. Scheduling ahead is what lets the Timeline place sounds on the
+   *   audio clock rather than on whenever a timer happened to fire.
+   * @param {boolean} [options.fromGroup=false]  set by Group when it plays its
+   *   members; a grouped sound refuses to be played directly.
    */
-  async play(fromGroup = false, when = 0) {
+  async play(options = {}) {
+    // A boolean here is the old positional signature, play(fromGroup, when).
+    // Destructuring it would silently drop both arguments, so say so instead.
+    if (typeof options !== 'object' || options === null) {
+      throw new TypeError('play() takes an options object, e.g. play({ when: time })')
+    }
+
+    const { when = 0, fromGroup = false } = options
+
     if (this.isGrouped && !fromGroup) {
       console.warn(`Cannot play the sound ${this.fileName} directly. It is in a group.`)
       return
