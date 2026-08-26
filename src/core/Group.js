@@ -1,11 +1,12 @@
 import Sound from './Sound.js'
 import { rebuildChain } from './chain.js'
+import { isAudioContext } from './audioContext.js'
 
 var groupProperties = new WeakMap;
 
 class Group {
   constructor(context) {
-    if (!(context instanceof (window.AudioContext || window.webkitAudioContext))) {
+    if (!isAudioContext(context)) {
       throw new Error('No audio context provided to Group')
     }
 

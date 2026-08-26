@@ -1,22 +1,46 @@
-# pluck
-
-To install dependencies:
-
-```bash
-bun install
-```
-
-To run:
-
-```bash
-bun run index.js
-```
-
-This project was created using `bun init` in bun v1.1.13. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.
-
 # Pluck.js
 
 Pluck.js is a modern, lightweight, and efficient JavaScript sound library designed to be a drop-in replacement for Pizzicato.js. This library utilizes modern JavaScript standards (ES8+) and browser Web Audio APIs to create, play, and manage audio with a focus on memory efficiency.
+
+## Installing
+
+```bash
+bun add pluck
+```
+
+```js
+import { Sound, Timeline, Group, Reverb } from 'pluck'
+```
+
+The package is ESM only. Web Audio does not exist outside a browser, so there
+is nowhere for a CommonJS build to run.
+
+Importing the library has no side effects, so a bundler can tree-shake it and a
+server-rendered app can import it at the top level. Web Audio is looked up on
+`globalThis` and only when audio is actually created, so evaluating the module
+where there is no `window` is safe; constructing a `Sound` there throws
+`Web Audio is not available in this environment` rather than a ReferenceError.
+
+For a plain `<script>` tag, use the bundled build, which attaches everything to
+`window.Pluck`:
+
+```html
+<script src="dist/pluck.js"></script>
+<script>
+  const sound = new Pluck.Sound({ file: 'snd.mp3' })
+</script>
+```
+
+### Builds
+
+| File | Format | For |
+| --- | --- | --- |
+| `dist/pluck.esm.js` | ESM | `import` from a bundler; what the package entry points at |
+| `dist/pluck.js` | IIFE | a `<script>` tag; sets `window.Pluck` |
+| `dist/pluck.min.js` | IIFE, minified | the same, for production |
+
+Build them all with `bun run build`, or `bun run start` to rebuild the script
+bundle on change while working on the demos in `dist/`.
 
 ## Project Priorities
 
@@ -54,6 +78,7 @@ Pluck.js is a modern, lightweight, and efficient JavaScript sound library design
     - Timeline.test.js
     - Tempo.test.js
     - Effects.test.js
+    - packaging.test.js
     - BufferCache.test.js
     - PriorityQueue.test.js
     - Events.test.js

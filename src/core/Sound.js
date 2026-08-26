@@ -1,6 +1,7 @@
 import Events from './Events.js'
 import Voice from './Voice.js'
 import { rebuildChain } from './chain.js'
+import { createAudioContext } from './audioContext.js'
 import bufferCache, { fetchAndDecode } from './BufferCache.js'
 
 const soundProperties = new WeakMap()
@@ -9,7 +10,7 @@ const isMediaStream = value => !!value && typeof value.getTracks === 'function'
 
 class Sound {
   constructor(options = {}) {
-    const audioContext = options.context || new (window.AudioContext || window.webkitAudioContext)()
+    const audioContext = options.context || createAudioContext()
     const gainNode = audioContext.createGain()
     gainNode.gain.value = options.volume ?? 1
     // Voices connect into this node, so it has to reach the output whether or

@@ -2,6 +2,7 @@ import Sound from './Sound.js'
 import PriorityQueue from './PriorityQueue.js'
 import Events from './Events.js'
 import Tempo from './Tempo.js'
+import { createAudioContext } from './audioContext.js'
 
 const timelineProperties = new WeakMap()
 
@@ -55,7 +56,7 @@ class Timeline {
     const properties = timelineProperties.get(this)
 
     this.stopScheduler()
-    properties.context = new (window.AudioContext || window.webkitAudioContext)()
+    properties.context = createAudioContext()
     // Beat 0 is the moment the transport starts, not the moment the context was
     // created, so musical positions are relative to playback.
     properties.tempo.reset(properties.context.currentTime, 0)

@@ -1,17 +1,62 @@
 {
   "name": "pluck",
-  "module": "index.js",
-  "devDependencies": {
-    "@types/bun": "latest",
-    "documentation": "^14.0.3"
+  "version": "0.1.0",
+  "description": "A modern, dependency-free JavaScript sound library built on the Web Audio API, with audio-clock scheduling, musical time, polyphony and effects.",
+  "type": "module",
+  "main": "./dist/pluck.esm.js",
+  "module": "./dist/pluck.esm.js",
+  "exports": {
+    ".": {
+      "import": "./dist/pluck.esm.js",
+      "default": "./dist/pluck.esm.js"
+    },
+    "./global": "./dist/pluck.js",
+    "./package.json": "./package.json"
+  },
+  "sideEffects": [
+    "./src/global.js",
+    "./dist/pluck.js",
+    "./dist/pluck.min.js"
+  ],
+  "files": [
+    "dist/pluck.js",
+    "dist/pluck.esm.js",
+    "dist/pluck.min.js",
+    "src",
+    "README.md"
+  ],
+  "keywords": [
+    "audio",
+    "web-audio",
+    "sound",
+    "music",
+    "scheduler",
+    "sequencer",
+    "tempo",
+    "polyphony",
+    "effects",
+    "pizzicato"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mbutler/Pluck.git"
+  },
+  "homepage": "https://github.com/mbutler/Pluck#readme",
+  "bugs": {
+    "url": "https://github.com/mbutler/Pluck/issues"
   },
   "scripts": {
     "test": "bun test",
-    "build": "bun run build:dev && bun run build:min",
-    "build:dev": "bun build src/index.js --outfile ./dist/pluck.js",
-    "build:min": "bun build --minify src/index.js --outfile ./dist/pluck.min.js",
-    "start": "bun build src/index.js --watch --outfile ./dist/pluck.js",
-    "document": "documentation build src/** -f html -o docs"
+    "build": "bun run build:esm && bun run build:global && bun run build:min",
+    "build:esm": "bun build src/index.js --outfile ./dist/pluck.esm.js --format esm",
+    "build:global": "bun build src/global.js --format iife --outfile ./dist/pluck.js",
+    "build:min": "bun build --minify --format iife src/global.js --outfile ./dist/pluck.min.js",
+    "start": "bun build src/global.js --format iife --watch --outfile ./dist/pluck.js",
+    "document": "documentation build src/** -f html -o docs",
+    "prepublishOnly": "bun run test && bun run build"
   },
-  "type": "module"
+  "devDependencies": {
+    "@types/bun": "latest",
+    "documentation": "^14.0.3"
+  }
 }
