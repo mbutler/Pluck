@@ -176,9 +176,9 @@ describe('lookahead', () => {
     timeline.tick()
     await settle()
 
-    expect(sound.gainNode.gain.automation).toEqual([
+    expect(sound.voices[0].gainNode.gain.automation).toEqual([
       { type: 'setValueAtTime', value: 0, time: 1.5 },
-      { type: 'linearRampToValueAtTime', value: 0.5, time: 1.6 }
+      { type: 'linearRampToValueAtTime', value: 1, time: 1.6 }
     ])
   })
 

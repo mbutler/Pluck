@@ -1,10 +1,17 @@
 import Timeline from './core/Timeline.js'
 import Sound from './core/Sound.js'
 import Group from './core/Group.js'
+import Voice from './core/Voice.js'
+import bufferCache, { BufferCache } from './core/BufferCache.js'
 
-window.Pluck = {
+const Pluck = {
   Timeline,
   Sound,
-  Group
+  Group,
+  Voice,
+  BufferCache,
+  // The cache Sound loads through. Clear it to release decoded audio.
+  bufferCache
 }
 
+window.Pluck = Pluck

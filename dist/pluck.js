@@ -33,6 +33,92 @@ class Events {
 }
 var Events_default = Events;
 
+// src/core/Voice.js
+class Voice {
+  constructor(context, source, output) {
+    this.context = context;
+    this.source = source;
+    this.gainNode = context.createGain();
+    this.gainNode.gain.value = 0;
+    source.connect(this.gainNode);
+    this.gainNode.connect(output);
+    this.started = false;
+    this.ended = false;
+    this.onended = null;
+    source.onended = () => this.retire();
+  }
+  start(when, offset, attack) {
+    this.gainNode.gain.setValueAtTime(0, when);
+    this.gainNode.gain.linearRampToValueAtTime(1, when + attack);
+    this.source.start(when, offset);
+    this.started = true;
+  }
+  stop() {
+    if (this.ended)
+      return;
+    if (this.started && this.source.stop)
+      this.source.stop();
+    this.retire();
+  }
+  retire() {
+    if (this.ended)
+      return;
+    this.ended = true;
+    this.source.disconnect();
+    this.gainNode.disconnect();
+    if (this.onended)
+      this.onended(this);
+  }
+}
+var Voice_default = Voice;
+
+// src/core/BufferCache.js
+var fetchAndDecode = async (context, url) => {
+  const response = await fetch(url);
+  const arrayBuffer = await response.arrayBuffer();
+  return context.decodeAudioData(arrayBuffer);
+};
+
+class BufferCache {
+  constructor() {
+    this.buffers = new Map;
+    this.pending = new Map;
+  }
+  async load(context, url) {
+    const decoded = this.buffers.get(url);
+    if (decoded)
+      return decoded;
+    let pending = this.pending.get(url);
+    if (!pending) {
+      pending = fetchAndDecode(context, url);
+      this.pending.set(url, pending);
+    }
+    try {
+      const buffer = await pending;
+      this.buffers.set(url, buffer);
+      return buffer;
+    } finally {
+      this.pending.delete(url);
+    }
+  }
+  get(url) {
+    return this.buffers.get(url);
+  }
+  has(url) {
+    return this.buffers.has(url);
+  }
+  delete(url) {
+    return this.buffers.delete(url);
+  }
+  clear() {
+    this.buffers.clear();
+  }
+  get size() {
+    return this.buffers.size;
+  }
+}
+var BufferCache_default = new BufferCache;
+
 // src/core/Sound.js
 var soundProperties = new WeakMap;
 var isMediaStream = (value) => !!value && typeof value.getTracks === "function";
@@ -42,6 +128,7 @@ class Sound {
     const audioContext = options.context || new (window.AudioContext || window.webkitAudioContext);
     const gainNode = audioContext.createGain();
     gainNode.gain.value = options.volume ?? 1;
+    gainNode.connect(audioContext.destination);
     const properties = {
       fileName: options.file || options.fileName || null,
       context: audioContext,
@@ -58,9 +145,11 @@ class Sound {
       isPlaying: false,
       isGrouped: false,
       events: new Events_default,
-      sourceStarted: false,
       waveOptions: options.wave || null,
-      output: audioContext.destination
+      output: audioContext.destination,
+      useCache: options.cache !== false,
+      polyphony: options.polyphony ?? 1,
+      voices: []
     };
     soundProperties.set(this, properties);
     this.initialized = this.initialize(options);
@@ -76,9 +165,7 @@ class Sound {
   async initSource(options) {
     if (options.file) {
       await this.loadFromFile(options.file);
-    } else if (options.audioBuffer) {
-      this.createSourceFromBuffer();
-    } else if (options.wave) {
+    } else if (options.audioBuffer) {} else if (options.wave) {
       this.initFromWave(options.wave);
     } else if (options.input) {
       await this.initFromInput(isMediaStream(options.input) ? options.input : null);
@@ -87,68 +174,30 @@ class Sound {
     }
   }
   async loadFromFile(file) {
+    const properties = soundProperties.get(this);
     try {
-      const response = await fetch(file);
-      const arrayBuffer = await response.arrayBuffer();
-      this.audioBuffer = await this.context.decodeAudioData(arrayBuffer);
-      this.createSourceFromBuffer();
+      this.audioBuffer = properties.useCache ? await BufferCache_default.load(this.context, file) : await fetchAndDecode(this.context, file);
     } catch (error) {
       console.error("Error loading sound file:", error);
     }
   }
-  createSourceFromBuffer() {
-    if (!this.audioBuffer) {
-      console.error("No audio buffer to create source from");
-      return;
-    }
-    const source = this.context.createBufferSource();
-    source.buffer = this.audioBuffer;
-    source.loop = this.loop;
-    this.source = source;
-    soundProperties.get(this).sourceStarted = false;
-    this.connectGain();
-    source.onended = () => {
-      if (this.source !== source)
-        return;
-      this.isPlaying = false;
-      this.source = null;
-      if (this.clearBuffer)
-        this.audioBuffer = null;
-    };
-  }
   initFromWave(waveOptions) {
-    const properties = soundProperties.get(this);
-    properties.waveOptions = waveOptions;
-    const source = this.context.createOscillator();
-    source.type = waveOptions.type || "sine";
-    source.frequency.value = waveOptions.frequency || 440;
-    this.source = source;
-    properties.sourceStarted = false;
-    this.connectGain();
-    source.onended = () => {
-      if (this.source !== source)
-        return;
-      this.isPlaying = false;
-      this.source = null;
-    };
+    soundProperties.get(this).waveOptions = waveOptions;
   }
-  releaseSource() {
-    const properties = soundProperties.get(this);
-    const source = properties.source;
-    if (!source)
-      return;
-    if (properties.sourceStarted && source.stop)
-      source.stop();
-    source.disconnect();
-    properties.sourceStarted = false;
-    properties.source = null;
-  }
-  createSource() {
+  createSourceNode() {
     if (this.audioBuffer) {
-      this.createSourceFromBuffer();
-    } else if (this.waveOptions) {
-      this.initFromWave(this.waveOptions);
+      const source = this.context.createBufferSource();
+      source.buffer = this.audioBuffer;
+      source.loop = this.loop;
+      return source;
     }
+    if (this.waveOptions) {
+      const source = this.context.createOscillator();
+      source.type = this.waveOptions.type || "sine";
+      source.frequency.value = this.waveOptions.frequency || 440;
+      return source;
+    }
+    return null;
   }
   async initFromInput(existingStream = null) {
     try {
@@ -185,23 +234,48 @@ class Sound {
       console.error("No audio buffer or source available to play");
       return;
     }
-    this.releaseSource();
-    this.createSource();
-    if (this.source && this.source.start) {
-      const startTime = when > this.context.currentTime ? when : this.context.currentTime;
-      this.isPlaying = true;
-      this.applyAttack(startTime);
-      this.events.trigger("play");
-      this.source.start(startTime, this.offset);
-      soundProperties.get(this).sourceStarted = true;
-    } else {
+    const properties = soundProperties.get(this);
+    while (properties.voices.length >= properties.polyphony) {
+      properties.voices[0].stop();
+    }
+    const source = this.createSourceNode();
+    if (!source || !source.start) {
       console.error("No source to play");
       this.isPlaying = false;
+      return;
     }
+    const startTime = when > this.context.currentTime ? when : this.context.currentTime;
+    const voice = new Voice_default(this.context, source, properties.gainNode);
+    voice.onended = () => this.retireVoice(voice);
+    properties.voices.push(voice);
+    properties.source = source;
+    this.isPlaying = true;
+    this.events.trigger("play");
+    voice.start(startTime, this.offset, this.attack);
+  }
+  retireVoice(voice) {
+    const properties = soundProperties.get(this);
+    const index = properties.voices.indexOf(voice);
+    if (index !== -1)
+      properties.voices.splice(index, 1);
+    if (properties.voices.length) {
+      properties.source = properties.voices[properties.voices.length - 1].source;
+      return;
+    }
+    properties.source = null;
+    properties.isPlaying = false;
+    if (properties.clearBuffer)
+      properties.audioBuffer = null;
   }
   stop() {
-    this.isPlaying = false;
-    this.releaseSource();
+    const properties = soundProperties.get(this);
+    properties.voices.slice().forEach((voice) => voice.stop());
+    properties.voices.length = 0;
+    properties.isPlaying = false;
+    if (properties.source && properties.mediaStream) {
+      properties.source.disconnect();
+    }
+    properties.source = null;
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());
       this.mediaStream = null;
@@ -220,7 +294,9 @@ class Sound {
       attack: properties.attack,
       release: properties.release,
       offset: properties.offset,
-      clearBuffer: properties.clearBuffer
+      clearBuffer: properties.clearBuffer,
+      polyphony: properties.polyphony,
+      cache: properties.useCache
     };
     if (properties.audioBuffer) {
       options.audioBuffer = properties.audioBuffer;
@@ -331,6 +407,19 @@ class Sound {
   }
   get waveOptions() {
     return soundProperties.get(this).waveOptions;
+  }
+  get voices() {
+    return [...soundProperties.get(this).voices];
+  }
+  get polyphony() {
+    return soundProperties.get(this).polyphony;
+  }
+  set polyphony(value) {
+    const properties = soundProperties.get(this);
+    properties.polyphony = value;
+    while (properties.voices.length > value) {
+      properties.voices[0].stop();
+    }
   }
   get output() {
     return soundProperties.get(this).output;
@@ -786,8 +875,12 @@ class Group {
 var Group_default = Group;
 
 // src/index.js
-window.Pluck = {
+var Pluck = {
   Timeline: Timeline_default,
   Sound: Sound_default,
-  Group: Group_default
+  Group: Group_default,
+  Voice: Voice_default,
+  BufferCache,
+  bufferCache: BufferCache_default
 };
+window.Pluck = Pluck;

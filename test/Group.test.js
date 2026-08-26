@@ -70,8 +70,10 @@ describe('addSounds', () => {
     await sound.initialized
     group.addSounds([sound])
     await group.play()
+    const [voice] = sound.voices
 
-    expect(hasEdge(sound.source, sound.gainNode)).toBe(true)
+    expect(hasEdge(sound.source, voice.gainNode)).toBe(true)
+    expect(hasEdge(voice.gainNode, sound.gainNode)).toBe(true)
     expect(hasEdge(sound.gainNode, group.gainNode)).toBe(true)
     expect(hasEdge(group.gainNode, context.destination)).toBe(true)
 

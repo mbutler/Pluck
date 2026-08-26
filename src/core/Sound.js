@@ -1,4 +1,6 @@
 import Events from './Events.js'
+import Voice from './Voice.js'
+import bufferCache, { fetchAndDecode } from './BufferCache.js'
 
 const soundProperties = new WeakMap()
 
@@ -9,6 +11,9 @@ class Sound {
     const audioContext = options.context || new (window.AudioContext || window.webkitAudioContext)()
     const gainNode = audioContext.createGain()
     gainNode.gain.value = options.volume ?? 1
+    // Voices connect into this node, so it has to reach the output whether or
+    // not anything is playing yet.
+    gainNode.connect(audioContext.destination)
     const properties = {
       fileName: options.file || options.fileName || null,
       context: audioContext,
@@ -25,9 +30,13 @@ class Sound {
       isPlaying: false,
       isGrouped: false,
       events: new Events(),
-      sourceStarted: false,
       waveOptions: options.wave || null,
-      output: audioContext.destination
+      output: audioContext.destination,
+      useCache: options.cache !== false,
+      // How many instances of this sound may ring at once. The default of 1
+      // restarts on replay; raising it lets hits overlap.
+      polyphony: options.polyphony ?? 1,
+      voices: []
     }
     soundProperties.set(this, properties)
 
@@ -47,7 +56,7 @@ class Sound {
     if (options.file) {
       await this.loadFromFile(options.file)
     } else if (options.audioBuffer) {
-      this.createSourceFromBuffer()
+      // Nothing to build: the buffer is all a voice needs.
     } else if (options.wave) {
       this.initFromWave(options.wave)
     } else if (options.input) {
@@ -58,72 +67,42 @@ class Sound {
   }
 
   async loadFromFile(file) {
+    const properties = soundProperties.get(this)
     try {
-      const response = await fetch(file)
-      const arrayBuffer = await response.arrayBuffer()
-      this.audioBuffer = await this.context.decodeAudioData(arrayBuffer)
-      this.createSourceFromBuffer()
+      // The shared cache means several Sounds on the same file cost one fetch
+      // and one decode between them, and hold one buffer rather than one each.
+      this.audioBuffer = properties.useCache
+        ? await bufferCache.load(this.context, file)
+        : await fetchAndDecode(this.context, file)
     } catch (error) {
       console.error('Error loading sound file:', error)
     }
   }
 
-  createSourceFromBuffer() {
-    if (!this.audioBuffer) {
-      console.error('No audio buffer to create source from')
-      return
-    }
-    const source = this.context.createBufferSource()
-    source.buffer = this.audioBuffer
-    source.loop = this.loop
-    this.source = source
-    soundProperties.get(this).sourceStarted = false
-    this.connectGain()
-    source.onended = () => {
-      // A later play() may already have swapped in a fresh source.
-      if (this.source !== source) return
-      this.isPlaying = false
-      this.source = null
-      if (this.clearBuffer) this.audioBuffer = null
-    }
-  }
-
   initFromWave(waveOptions) {
-    const properties = soundProperties.get(this)
-    properties.waveOptions = waveOptions
-    const source = this.context.createOscillator()
-    source.type = waveOptions.type || 'sine'
-    source.frequency.value = waveOptions.frequency || 440
-    this.source = source
-    properties.sourceStarted = false
-    this.connectGain()
-    source.onended = () => {
-      if (this.source !== source) return
-      this.isPlaying = false
-      this.source = null
-    }
+    soundProperties.get(this).waveOptions = waveOptions
   }
 
-  // Stops and unhooks the current source. A source node that was never started
-  // must not be stopped: the Web Audio spec makes that an InvalidStateError.
-  releaseSource() {
-    const properties = soundProperties.get(this)
-    const source = properties.source
-    if (!source) return
-
-    if (properties.sourceStarted && source.stop) source.stop()
-    source.disconnect()
-    properties.sourceStarted = false
-    properties.source = null
-  }
-
-  // Source nodes are single-use, so every play() needs a fresh one.
-  createSource() {
+  /**
+   * Builds a fresh, unconnected source node. Source nodes cannot be restarted,
+   * so this runs once per voice; the voice takes ownership of wiring it up.
+   */
+  createSourceNode() {
     if (this.audioBuffer) {
-      this.createSourceFromBuffer()
-    } else if (this.waveOptions) {
-      this.initFromWave(this.waveOptions)
+      const source = this.context.createBufferSource()
+      source.buffer = this.audioBuffer
+      source.loop = this.loop
+      return source
     }
+
+    if (this.waveOptions) {
+      const source = this.context.createOscillator()
+      source.type = this.waveOptions.type || 'sine'
+      source.frequency.value = this.waveOptions.frequency || 440
+      return source
+    }
+
+    return null
   }
 
   async initFromInput(existingStream = null) {
@@ -180,25 +159,62 @@ class Sound {
     // last play() left behind and build a new one. Grouped sounds included:
     // the fresh source feeds this.gainNode, which is already wired to the
     // group, so the routing survives.
-    this.releaseSource()
-    this.createSource()
+    const properties = soundProperties.get(this)
 
-    if (this.source && this.source.start) {
-      const startTime = when > this.context.currentTime ? when : this.context.currentTime
-      this.isPlaying = true
-      this.applyAttack(startTime)
-      this.events.trigger('play')
-      this.source.start(startTime, this.offset)
-      soundProperties.get(this).sourceStarted = true
-    } else {
+    // At the polyphony limit the oldest voice makes room for the new one.
+    while (properties.voices.length >= properties.polyphony) {
+      properties.voices[0].stop()
+    }
+
+    const source = this.createSourceNode()
+    if (!source || !source.start) {
       console.error('No source to play')
       this.isPlaying = false
+      return
     }
+
+    const startTime = when > this.context.currentTime ? when : this.context.currentTime
+    const voice = new Voice(this.context, source, properties.gainNode)
+    voice.onended = () => this.retireVoice(voice)
+
+    properties.voices.push(voice)
+    properties.source = source
+    this.isPlaying = true
+    this.events.trigger('play')
+
+    voice.start(startTime, this.offset, this.attack)
+  }
+
+  /** Called when a voice finishes or is cut short. */
+  retireVoice(voice) {
+    const properties = soundProperties.get(this)
+
+    const index = properties.voices.indexOf(voice)
+    if (index !== -1) properties.voices.splice(index, 1)
+
+    if (properties.voices.length) {
+      properties.source = properties.voices[properties.voices.length - 1].source
+      return
+    }
+
+    properties.source = null
+    properties.isPlaying = false
+    if (properties.clearBuffer) properties.audioBuffer = null
   }
 
   stop() {
-    this.isPlaying = false
-    this.releaseSource()
+    const properties = soundProperties.get(this)
+
+    // slice() because stopping a voice retires it out of the same array.
+    properties.voices.slice().forEach(voice => voice.stop())
+    properties.voices.length = 0
+    properties.isPlaying = false
+
+    // A live input has a source node but no voice; unhook it directly.
+    if (properties.source && properties.mediaStream) {
+      properties.source.disconnect()
+    }
+    properties.source = null
 
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach(track => track.stop())
@@ -219,7 +235,9 @@ class Sound {
       attack: properties.attack,
       release: properties.release,
       offset: properties.offset,
-      clearBuffer: properties.clearBuffer
+      clearBuffer: properties.clearBuffer,
+      polyphony: properties.polyphony,
+      cache: properties.useCache
     }
 
     if (properties.audioBuffer) {
@@ -360,6 +378,28 @@ class Sound {
 
   get waveOptions() {
     return soundProperties.get(this).waveOptions
+  }
+
+  /** The voices currently sounding, oldest first. */
+  get voices() {
+    return [...soundProperties.get(this).voices]
+  }
+
+  get polyphony() {
+    return soundProperties.get(this).polyphony
+  }
+
+  /**
+   * How many instances of this sound may ring at once. 1 (the default) restarts
+   * on replay. Raising it lets hits overlap; once the limit is reached the
+   * oldest voice is cut to make room.
+   */
+  set polyphony(value) {
+    const properties = soundProperties.get(this)
+    properties.polyphony = value
+    while (properties.voices.length > value) {
+      properties.voices[0].stop()
+    }
   }
 
   get output() {

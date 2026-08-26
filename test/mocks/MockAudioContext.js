@@ -14,6 +14,8 @@
  * manual check against the real API.
  */
 
+import bufferCache from '../../src/core/BufferCache.js'
+
 const edges = new Set()
 let nextId = 0
 
@@ -241,8 +243,13 @@ export const installBrowserGlobals = () => {
   globalThis.cancelAnimationFrame = () => {}
 }
 
-/** Clears the recorded graph and call log. Call between tests. */
+/**
+ * Clears the recorded graph, the call log, and the shared buffer cache. The
+ * cache is module-level and would otherwise carry decoded audio between tests,
+ * making fetch counts depend on test order.
+ */
 export const resetMocks = () => {
+  bufferCache.clear()
   edges.clear()
   calls.fetch.length = 0
   calls.getUserMedia.length = 0

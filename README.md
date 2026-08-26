@@ -49,8 +49,10 @@ Pluck.js is a modern, lightweight, and efficient JavaScript sound library design
     - mocks/ (Mock classes for testing)
       - MockAudioContext.js
     - Sound.test.js
+    - Voice.test.js
     - Group.test.js
     - Timeline.test.js
+    - BufferCache.test.js
     - PriorityQueue.test.js
     - Events.test.js
   - index.html (Sample HTML file for testing in the browser)
@@ -68,6 +70,25 @@ Pluck.js is a modern, lightweight, and efficient JavaScript sound library design
   - Supports various audio sources including files, waves, inputs, and functions.
   - Uses `WeakMap` for efficient memory management.
   - Includes methods for cloning and managing audio playback.
+  - `polyphony` (default 1) sets how many instances may ring at once. At 1 a
+    replay restarts the sound; higher values let hits overlap, and once the
+    limit is reached the oldest voice is cut to make room.
+
+- **Voice.js**
+  - One sounding instance of a Sound: its own source node and its own gain node,
+    wired `source -> voice.gain -> sound.gain -> output`. The private gain node
+    is what makes overlap work — the envelope is per-voice, so a second hit does
+    not restart the first one's attack. Volume lives on the Sound's gain node,
+    downstream of every voice, so it moves them together.
+
+- **BufferCache.js**
+  - One decoded `AudioBuffer` per URL, shared across Sounds, so loading the same
+    file into several Sounds costs one fetch and one decode rather than one of
+    each. In-flight loads are shared too. Pass `cache: false` to a Sound to opt
+    out; `Pluck.bufferCache.clear()` releases everything.
+  - Note that `clearBuffer` drops only that Sound's reference — the cache still
+    holds the buffer, which is the point. Use the cache's own `delete(url)` or
+    `clear()` to actually free memory.
 
 - **Group.js**
   - Manages groups of sounds, allowing for collective playback and manipulation.
@@ -109,8 +130,8 @@ bun test
     same pair of nodes twice is a no-op, and `AudioParam.value` reflects the
     last set value rather than a ramp in progress.
 
-- **Sound.test.js**, **Group.test.js**, **Timeline.test.js**,
-  **PriorityQueue.test.js**, **Events.test.js**
+- **Sound.test.js**, **Voice.test.js**, **Group.test.js**, **Timeline.test.js**,
+  **BufferCache.test.js**, **PriorityQueue.test.js**, **Events.test.js**
   - Run against the mock under Bun's test runner, so they need no browser and
     finish in well under a second.
 

@@ -32,9 +32,20 @@ describe('initialization', () => {
   test('defaults to a 440Hz sine when given no source', async () => {
     const sound = new Sound({ context })
     await sound.initialized
+    await sound.play()
 
     expect(sound.source.type).toBe('sine')
     expect(sound.source.frequency.value).toBe(440)
+  })
+
+  // Source nodes are single-use, so building one at init only to throw it away
+  // on the first play is waste. Nothing exists until there is a voice.
+  test('creates no source node before playing', async () => {
+    const sound = new Sound({ context, wave: { type: 'sine' } })
+    await sound.initialized
+
+    expect(sound.source).toBe(null)
+    expect(sound.voices).toEqual([])
   })
 
   test('loads and decodes a file', async () => {
@@ -59,6 +70,7 @@ describe('initialization', () => {
   test('builds an oscillator from wave options', async () => {
     const sound = new Sound({ context, wave: { type: 'square', frequency: 220 } })
     await sound.initialized
+    await sound.play()
 
     expect(sound.source.type).toBe('square')
     expect(sound.source.frequency.value).toBe(220)
@@ -70,6 +82,7 @@ describe('initialization', () => {
     const buffer = { sampleRate: 44100 }
     const sound = new Sound({ context, audioBuffer: buffer })
     await sound.initialized
+    await sound.play()
 
     expect(sound.source.buffer).toBe(buffer)
     expect(sound.source.frequency).toBeUndefined()
@@ -121,8 +134,8 @@ describe('loop', () => {
   test('is copied onto the source node verbatim', async () => {
     const looping = bufferedSound({ loop: true })
     const once = bufferedSound({ loop: false })
-    await looping.initialized
-    await once.initialized
+    await looping.play()
+    await once.play()
 
     expect(looping.source.loop).toBe(true)
     expect(once.source.loop).toBe(false)
@@ -145,12 +158,15 @@ describe('play', () => {
     expect(sound.source.startCalls).toEqual([{ when: context.currentTime, offset: 2 }])
   })
 
-  test('routes source through the gain node to the destination', async () => {
+  test('routes source through the voice and sound gain to the destination', async () => {
     const sound = bufferedSound()
     await sound.play()
+    const [voice] = sound.voices
 
-    expect(hasEdge(sound.source, sound.gainNode)).toBe(true)
+    expect(hasEdge(sound.source, voice.gainNode)).toBe(true)
+    expect(hasEdge(voice.gainNode, sound.gainNode)).toBe(true)
     expect(hasEdge(sound.gainNode, context.destination)).toBe(true)
+    expect(pathExists(sound.source, context.destination)).toBe(true)
   })
 
   test('resumes a suspended context', async () => {
@@ -210,14 +226,19 @@ describe('play', () => {
     expect(pathExists(sound.source, context.destination)).toBe(true)
   })
 
-  test('applies the attack envelope', async () => {
+  test('applies the attack envelope on the voice, not the sound', async () => {
     const sound = bufferedSound({ volume: 0.8, attack: 0.5 })
     await sound.play()
+    const [voice] = sound.voices
 
-    expect(sound.gainNode.gain.automation).toEqual([
+    // The envelope runs 0..1 so it composes with volume rather than replacing
+    // it; multiplying both onto one node would square the volume.
+    expect(voice.gainNode.gain.automation).toEqual([
       { type: 'setValueAtTime', value: 0, time: 0 },
-      { type: 'linearRampToValueAtTime', value: 0.8, time: 0.5 }
+      { type: 'linearRampToValueAtTime', value: 1, time: 0.5 }
     ])
+    expect(sound.gainNode.gain.value).toBe(0.8)
+    expect(sound.gainNode.gain.automation).toEqual([])
   })
 
   test('triggers the play event', async () => {
@@ -434,7 +455,7 @@ describe('clone', () => {
     original.stop()
 
     const copy = original.clone()
-    await copy.initialized
+    await copy.play()
 
     expect(copy.source.type).toBe('triangle')
     expect(copy.source.frequency.value).toBe(660)
@@ -458,8 +479,9 @@ describe('clone', () => {
     await original.initialized
     await copy.initialized
 
-    expect(calls.fetch).toEqual(['later.mp3', 'later.mp3'])
-    expect(copy.audioBuffer).toBeTruthy()
+    // Both wanted the same file, so the cache served one fetch to both.
+    expect(calls.fetch).toEqual(['later.mp3'])
+    expect(copy.audioBuffer).toBe(original.audioBuffer)
   })
 
   test('produces a playable sound', async () => {
