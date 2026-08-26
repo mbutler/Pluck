@@ -1,0 +1,694 @@
+<title>Weather as Instrument</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Public+Sans:wght@400;500;600&display=swap">
+
+<style>
+  /* ---- light palette: chart paper, prussian ink, storm-flag red ---- */
+  :root {
+    --ground:      #E9EEF1;
+    --surface:     #F7FAFB;
+    --surface-2:   #DFE7EB;
+    --ink:         #101B24;
+    --ink-mid:     #40535F;
+    --ink-soft:    #6B7F8C;
+    --rule:        #C3D0D8;
+    --rule-soft:   #D6E0E5;
+    --accent:      #A93A18;
+    --accent-soft: #F0DDD6;
+    --trace:       #1B5B79;
+    --trace-soft:  #D5E4EC;
+
+    --measure: 34rem;
+    --wide: 52rem;
+
+    --step--1: clamp(0.78rem, 0.76rem + 0.1vw, 0.83rem);
+    --step-0:  clamp(1rem, 0.97rem + 0.15vw, 1.08rem);
+    --step-1:  clamp(1.25rem, 1.18rem + 0.35vw, 1.45rem);
+    --step-2:  clamp(1.55rem, 1.4rem + 0.7vw, 2rem);
+    --step-3:  clamp(2rem, 1.7rem + 1.4vw, 2.9rem);
+    --step-4:  clamp(2.6rem, 2rem + 2.8vw, 4.4rem);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0B1117;
+      --surface:     #121C23;
+      --surface-2:   #1A262F;
+      --ink:         #DDE7EC;
+      --ink-mid:     #A2B4BF;
+      --ink-soft:    #7B8E9A;
+      --rule:        #253540;
+      --rule-soft:   #1C2932;
+      --accent:      #E0724A;
+      --accent-soft: #35211A;
+      --trace:       #63AECD;
+      --trace-soft:  #16303D;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #0B1117;
+    --surface:     #121C23;
+    --surface-2:   #1A262F;
+    --ink:         #DDE7EC;
+    --ink-mid:     #A2B4BF;
+    --ink-soft:    #7B8E9A;
+    --rule:        #253540;
+    --rule-soft:   #1C2932;
+    --accent:      #E0724A;
+    --accent-soft: #35211A;
+    --trace:       #63AECD;
+    --trace-soft:  #16303D;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: var(--step-0);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: 0 clamp(1.1rem, 4vw, 3rem) 6rem;
+  }
+
+  /* ---- masthead: barograph trace over chart ruling ---- */
+  .masthead {
+    position: relative;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 3.5rem;
+    padding: clamp(3rem, 9vw, 6rem) 0 2.25rem;
+    overflow: hidden;
+  }
+
+  .masthead::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      repeating-linear-gradient(to bottom, var(--rule-soft) 0 1px, transparent 1px 2.25rem),
+      repeating-linear-gradient(to right, var(--rule-soft) 0 1px, transparent 1px 2.25rem);
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent 78%);
+    mask-image: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent 78%);
+    pointer-events: none;
+  }
+
+  .masthead > * { position: relative; }
+
+  .trace {
+    display: block;
+    width: 100%;
+    height: clamp(52px, 9vw, 88px);
+    margin-bottom: 1.75rem;
+    color: var(--accent);
+  }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 0 0 1rem;
+  }
+
+  h1 {
+    font-family: "Newsreader", Georgia, serif;
+    font-size: var(--step-4);
+    font-weight: 400;
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    margin: 0 0 1.25rem;
+  }
+
+  .standfirst {
+    font-family: "Newsreader", Georgia, serif;
+    font-size: var(--step-1);
+    line-height: 1.5;
+    color: var(--ink-mid);
+    max-width: 30rem;
+    margin: 0;
+  }
+
+  /* ---- sections ---- */
+  section { margin-bottom: 4rem; }
+
+  h2 {
+    font-family: "Newsreader", Georgia, serif;
+    font-size: var(--step-2);
+    font-weight: 400;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    margin: 0 0 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--rule);
+  }
+
+  h3 {
+    font-family: "Public Sans", sans-serif;
+    font-size: var(--step-0);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    margin: 2.25rem 0 0.6rem;
+  }
+
+  p, ul, ol { max-width: var(--measure); }
+  p { margin: 0 0 1.1rem; }
+
+  ul, ol { padding-left: 1.15rem; margin: 0 0 1.1rem; }
+  li { margin-bottom: 0.5rem; }
+  li::marker { color: var(--ink-soft); }
+
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+
+  code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.87em;
+    background: var(--surface-2);
+    padding: 0.1em 0.35em;
+    border-radius: 2px;
+  }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  /* ---- the thesis ---- */
+  .thesis {
+    max-width: var(--measure);
+    margin: 2rem 0;
+    padding: 0 0 0 1.4rem;
+    border-left: 3px solid var(--accent);
+    font-family: "Newsreader", Georgia, serif;
+    font-size: var(--step-1);
+    line-height: 1.45;
+    color: var(--ink);
+  }
+
+  /* ---- the two-kinds split ---- */
+  .split {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 1.75rem 0;
+  }
+
+  .split > div { background: var(--surface); padding: 1.35rem 1.4rem; }
+  .split h4 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 0.6rem;
+    font-weight: 500;
+  }
+  .split p { margin: 0; max-width: none; font-size: 0.94rem; color: var(--ink-mid); }
+  .split p + p { margin-top: 0.7rem; }
+
+  /* ---- numbered layers: a real pipeline, so numbering means something ---- */
+  .layer {
+    display: grid;
+    grid-template-columns: 2.5rem 1fr;
+    gap: 0 1.1rem;
+    padding: 1.4rem 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .layer:last-of-type { border-bottom: 1px solid var(--rule-soft); }
+
+  .layer .num {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    color: var(--accent);
+    padding-top: 0.3rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .layer h3 { margin: 0 0 0.4rem; font-size: var(--step-1); font-family: "Newsreader", Georgia, serif; font-weight: 500; }
+  .layer p { margin: 0 0 0.6rem; }
+  .layer p:last-child { margin-bottom: 0; }
+  .layer .rule-note {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    letter-spacing: 0.01em;
+  }
+
+  /* ---- diagram ---- */
+  figure { margin: 2rem 0; max-width: var(--wide); }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    margin-top: 0.85rem;
+    max-width: var(--measure);
+    line-height: 1.5;
+  }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; margin: 1.5rem 0; border: 1px solid var(--rule); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 40rem; font-size: 0.93rem; }
+  th, td { text-align: left; padding: 0.75rem 0.95rem; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+  thead th {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    font-weight: 500;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--rule);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td:first-child { color: var(--ink); font-weight: 500; width: 11rem; }
+  td:nth-child(2) { color: var(--trace); }
+  td:last-child { color: var(--ink-mid); }
+
+  /* ---- pluck feature callouts ---- */
+  .kit { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin: 1.5rem 0; }
+  .kit > div { background: var(--surface); padding: 1rem 1.2rem; display: grid; grid-template-columns: minmax(9rem, 12rem) 1fr; gap: 0.4rem 1.2rem; }
+  .kit code { background: none; padding: 0; color: var(--accent); font-weight: 500; }
+  .kit p { margin: 0; max-width: none; color: var(--ink-mid); font-size: 0.93rem; }
+
+  @media (max-width: 34rem) {
+    .kit > div { grid-template-columns: 1fr; }
+  }
+
+  /* ---- gaps list ---- */
+  .gap {
+    border-left: 2px solid var(--rule);
+    padding: 0.15rem 0 0.15rem 1.1rem;
+    margin: 0 0 1.25rem;
+    max-width: var(--measure);
+  }
+  .gap.blocking { border-left-color: var(--accent); }
+  .gap h3 { margin: 0 0 0.3rem; }
+  .gap p { margin: 0; color: var(--ink-mid); font-size: 0.95rem; }
+  .gap .tag {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-left: 0.5rem;
+  }
+  .gap.blocking .tag { color: var(--accent); }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    max-width: var(--measure);
+    line-height: 1.6;
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <svg class="trace" viewBox="0 0 900 90" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0,58 C40,58 60,44 92,46 C124,48 140,64 176,62 C212,60 226,38 262,34
+               C298,30 314,52 348,56 C382,60 396,30 432,22 C468,14 484,44 520,52
+               C556,60 570,72 606,70 C642,68 656,46 692,42 C728,38 742,58 778,60
+               C814,62 830,50 866,48 L900,47"
+            fill="none" stroke="currentColor" stroke-width="1.75"
+            stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+    </svg>
+
+    <p class="eyebrow">Foundational document · Weather music on Pluck</p>
+    <h1>Weather as Instrument</h1>
+    <p class="standfirst">Not a library of recordings that weather selects from — an instrument whose every parameter is wired to the atmosphere, and which the weather plays.</p>
+  </header>
+
+  <section>
+    <h2>The premise</h2>
+
+    <p>There are two ways to make music out of weather, and the choice between them determines everything else.</p>
+
+    <div class="split">
+      <div>
+        <h4>Selection</h4>
+        <p>Weather picks from a library of finished material. Conditions map to files; the mapping is a lookup table.</p>
+        <p>Bounded by what was recorded. Continuous data must be bucketed to index into it, so 71°F and 79°F become the same sound. Every new nuance needs new audio.</p>
+      </div>
+      <div>
+        <h4>Generation</h4>
+        <p>Weather sets the parameters of a system that produces material continuously. The mapping is a function.</p>
+        <p>Unbounded. Nuance survives, because nothing is bucketed. New expressive range comes from new mappings, not new recordings.</p>
+      </div>
+    </div>
+
+    <p>We are building the second one. This is the whole thesis, and everything below follows from it:</p>
+
+    <p class="thesis">The weather is not the subject of the music. The weather is the performer.</p>
+
+    <p>A practical consequence worth stating early: a generative instrument built from short one-shots and synthesis needs somewhere between one and three megabytes of audio. A selection-based library of finished loops runs to hundreds. That difference is not just bandwidth — it is what makes the piece able to run indefinitely, respond instantly, and be tuned by ear in a browser tab.</p>
+  </section>
+
+  <section>
+    <h2>Weather has two tempos</h2>
+
+    <p>The single most useful observation for structuring this: weather changes on a scale of tens of minutes, and music needs motion on a scale of milliseconds. Any design that lets the weather clock drive the musical clock directly will produce something inert — a texture that sits still for ten minutes and then lurches.</p>
+
+    <p>So separate them, and give each its own kind of influence.</p>
+
+    <div class="split">
+      <div>
+        <h4>State — slow, continuous</h4>
+        <p>Temperature, humidity, pressure, wind, cloud, visibility. These are <em>conditions</em>. They shape the standing texture: what key it is in, how dense, how bright, how far away.</p>
+        <p>State never triggers anything. It sets the values that the engine is always reading.</p>
+      </div>
+      <div>
+        <h4>Events — discrete, punctuating</h4>
+        <p>A threshold crossed, a front passing, rain beginning, a gust, sunrise. These are <em>occurrences</em>. They trigger gestures — a swell, a strike, a modulation.</p>
+        <p>Events are rare enough to be meaningful. If everything is an event, nothing is.</p>
+      </div>
+    </div>
+
+    <p>The distinction is not cosmetic. It gives the piece a foreground and a background — the thing that makes music feel composed rather than merely generated. A texture that only responds to state is wallpaper. A texture that only responds to events is a sound-effects reel. You need both, and they should be built by different code.</p>
+  </section>
+
+  <section>
+    <h2>Three layers, strictly separated</h2>
+
+    <p>One structural rule, and it is worth being dogmatic about it: <strong>each layer speaks only its own vocabulary.</strong> No weather word appears in the performance layer. No audio word appears in the interpretation layer. No musical word appears in the observation layer.</p>
+
+    <div class="layer">
+      <div class="num">01</div>
+      <div>
+        <h3>Observe</h3>
+        <p>Fetch conditions and forecast. Normalize each reading into a dimensionless number, and compute its recent trend. Output is a plain object of numbers — no music vocabulary anywhere in it.</p>
+        <p class="rule-note">Knows about: APIs, units, history. Knows nothing about: sound.</p>
+      </div>
+    </div>
+
+    <div class="layer">
+      <div class="num">02</div>
+      <div>
+        <h3>Interpret</h3>
+        <p>A pure function from the weather vector to a <em>musical state</em>: tempo, mode, register, density, brightness, space, dynamics, section levels. No side effects, no audio, no clock.</p>
+        <p>This is the artistic heart of the project, and making it pure is the single highest-leverage decision in this document. It means you can audition any weather instantly, tune the art without touching the plumbing, and put the mapping under test.</p>
+        <p class="rule-note">Knows about: music theory, aesthetics. Knows nothing about: HTTP or Web Audio.</p>
+      </div>
+    </div>
+
+    <div class="layer">
+      <div class="num">03</div>
+      <div>
+        <h3>Perform</h3>
+        <p>A Pluck engine running continuously, reading the current musical state and realizing it — scheduling notes, moving parameters toward their targets, holding the mix.</p>
+        <p>It never asks what the weather is. It only ever asks what the musical state currently says.</p>
+        <p class="rule-note">Knows about: Pluck, scheduling, voices. Knows nothing about: weather.</p>
+      </div>
+    </div>
+
+    <figure>
+      <svg viewBox="0 0 760 250" role="img" aria-label="Three-layer pipeline: Observe produces a weather vector, Interpret produces a musical state, Perform renders audio. Weather events branch from Observe directly to scheduled gestures in Perform.">
+        <g font-family="IBM Plex Mono, monospace" font-size="11">
+          <!-- boxes -->
+          <rect x="12" y="58" width="196" height="76" fill="var(--surface)" stroke="var(--rule)"/>
+          <rect x="282" y="58" width="196" height="76" fill="var(--surface)" stroke="var(--rule)"/>
+          <rect x="552" y="58" width="196" height="76" fill="var(--surface)" stroke="var(--rule)"/>
+
+          <text x="28" y="82" fill="var(--accent)" letter-spacing="1.4">01 OBSERVE</text>
+          <text x="28" y="104" fill="var(--ink-mid)" font-size="10.5">fetch · normalize</text>
+          <text x="28" y="120" fill="var(--ink-mid)" font-size="10.5">compute trends</text>
+
+          <text x="298" y="82" fill="var(--accent)" letter-spacing="1.4">02 INTERPRET</text>
+          <text x="298" y="104" fill="var(--ink-mid)" font-size="10.5">pure function</text>
+          <text x="298" y="120" fill="var(--ink-mid)" font-size="10.5">the artistic layer</text>
+
+          <text x="568" y="82" fill="var(--accent)" letter-spacing="1.4">03 PERFORM</text>
+          <text x="568" y="104" fill="var(--ink-mid)" font-size="10.5">Pluck timeline</text>
+          <text x="568" y="120" fill="var(--ink-mid)" font-size="10.5">voices · groups · fx</text>
+
+          <!-- arrows between -->
+          <path d="M208,96 L276,96" stroke="var(--trace)" stroke-width="1.5" fill="none"/>
+          <path d="M270,91 L278,96 L270,101 Z" fill="var(--trace)"/>
+          <text x="214" y="86" fill="var(--ink-soft)" font-size="9.5">weather vector</text>
+
+          <path d="M478,96 L546,96" stroke="var(--trace)" stroke-width="1.5" fill="none"/>
+          <path d="M540,91 L548,96 L540,101 Z" fill="var(--trace)"/>
+          <text x="486" y="86" fill="var(--ink-soft)" font-size="9.5">musical state</text>
+
+          <!-- event bypass -->
+          <path d="M110,134 L110,190 L650,190 L650,138" stroke="var(--accent)" stroke-width="1.5"
+                fill="none" stroke-dasharray="4 4"/>
+          <path d="M645,144 L650,136 L655,144 Z" fill="var(--accent)"/>
+          <text x="316" y="182" fill="var(--accent)" font-size="9.5" letter-spacing="0.8">EVENTS — quantized to the next bar</text>
+
+          <!-- output -->
+          <path d="M650,58 L650,34" stroke="var(--trace)" stroke-width="1.5" fill="none"/>
+          <path d="M645,40 L650,32 L655,40 Z" fill="var(--trace)"/>
+          <text x="596" y="24" fill="var(--ink-soft)" font-size="9.5">audible output</text>
+
+          <text x="12" y="230" fill="var(--ink-soft)" font-size="9.5">state flows left to right, continuously · events bypass interpretation and land on a musical boundary</text>
+        </g>
+      </svg>
+      <figcaption>State passes through interpretation and is always in effect. Events skip it — they are already discrete, and their job is to interrupt.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Reading the weather honestly</h2>
+
+    <p>Two decisions in the observation layer do more for the finished piece than anything downstream.</p>
+
+    <h3>Normalize against local climate, not absolute range</h3>
+
+    <p>15°C is unremarkable in Reykjavík and startling in Phoenix. If temperature is normalized against a global range, the piece will sound nearly identical everywhere temperate and never reach its extremes anywhere. If it is normalized against <em>local</em> normals — where does today sit in the distribution for this place, this month — then a warm day in Iceland and a warm day in Arizona both read as warm, and the instrument means the same thing wherever it is played.</p>
+
+    <p>This is the difference between sonifying a number and sonifying a <em>condition</em>. It is also the single mapping decision most likely to be quietly wrong for a year before anyone notices.</p>
+
+    <h3>Keep history, and treat the derivative as a first-class reading</h3>
+
+    <p>Absolute pressure tells you little. Pressure <em>falling three millibars in three hours</em> tells you a storm is coming, and every sailor for three centuries has known it. Weather's meaning lives in its derivatives, and derivatives are what give music its sense of direction. A piece driven only by absolute values will feel static no matter how carefully the mappings are chosen.</p>
+
+    <p>So the observation layer keeps a rolling window and emits, for every reading, both a normalized level and a normalized rate of change.</p>
+  </section>
+
+  <section>
+    <h2>The mapping</h2>
+
+    <p>This table is the artistic core, and it is meant to be argued with — every row is a claim about what a condition <em>feels</em> like, and taste has to settle it. What follows is a defensible starting position, not a finished one.</p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th scope="col">Reading</th><th scope="col">Musical parameter</th><th scope="col">Why this pairing</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Temperature <em>(local percentile)</em></td>
+            <td>Register &amp; spacing</td>
+            <td>Cold reads as high, thin, and widely spaced; warmth as low, close, and full. Follows the intuition that cold air is brittle and carries, warm air is heavy and near.</td>
+          </tr>
+          <tr>
+            <td>Dew point</td>
+            <td>Filter cutoff &amp; damping</td>
+            <td>Humidity is the most bodily weather variable — it should be felt as weight on the sound rather than heard as a motif. Dry air is open and articulate; humid air is dark and damped.</td>
+          </tr>
+          <tr>
+            <td>Pressure <em>(level)</em></td>
+            <td>Mode</td>
+            <td>Slide along a brightness axis — Lydian, Ionian, Mixolydian, Dorian, Aeolian, Phrygian — as pressure falls. High pressure is settled and bright; low pressure is unsettled and dark. The scale itself carries the barometer.</td>
+          </tr>
+          <tr>
+            <td>Pressure <em>(trend)</em></td>
+            <td>Dynamic direction</td>
+            <td>The closest thing weather has to a narrative arc. Falling fast means crescendo, thickening, tension held unresolved. Rising means release and thinning. This is what keeps the piece from sitting still.</td>
+          </tr>
+          <tr>
+            <td>Wind speed</td>
+            <td>Event density &amp; pan motion</td>
+            <td>Wind is motion, so it should move things: more events per bar, and faster travel across the stereo field.</td>
+          </tr>
+          <tr>
+            <td>Wind direction</td>
+            <td>Stereo position; shifts modulate</td>
+            <td>Direction maps to placement directly. More interestingly, a <em>sustained shift</em> in direction is a frontal passage — a genuine meteorological event, and a good excuse for a key change.</td>
+          </tr>
+          <tr>
+            <td>Cloud cover</td>
+            <td>Texture density</td>
+            <td>Clear sky is a few voices with a great deal of space between them. Overcast is a continuous, unbroken pad. The sky's own coverage becomes the texture's coverage.</td>
+          </tr>
+          <tr>
+            <td>Visibility</td>
+            <td>Reverb size &amp; mix</td>
+            <td>The most directly synesthetic mapping available. Fog is an enormous wet space with no discernible edges; clear air is dry, near, and precise. If only one mapping survives review, make it this one.</td>
+          </tr>
+          <tr>
+            <td>Precipitation rate</td>
+            <td>Rhythmic subdivision</td>
+            <td>Drizzle sits on quarters; steady rain on eighths; downpour on sixteenths. Intensity becomes rhythm rather than volume, which keeps loud weather from simply being loud.</td>
+          </tr>
+          <tr>
+            <td>Precipitation type</td>
+            <td>Sample palette</td>
+            <td>Rain is plucked and struck. Snow is soft mallets with almost no attack. Hail is short, hard, and dry. The phase of the water chooses the instrument.</td>
+          </tr>
+          <tr>
+            <td>Solar elevation</td>
+            <td>Tempo &amp; overall brightness</td>
+            <td>A slow diurnal breathing underneath everything: slower, lower and sparser at night, without needing a clock to announce itself.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Note what is <em>not</em> in the table: loudness barely appears. Resist mapping intensity to volume. A storm should be denser, darker, lower and more agitated — not simply louder. Volume is the least interesting axis available and the first one everybody reaches for.</p>
+  </section>
+
+  <section>
+    <h2>Events, and why they must be quantized</h2>
+
+    <p>Events are threshold crossings and discrete occurrences: pressure falling faster than a chosen rate, temperature crossing freezing, precipitation starting or stopping, a gust above a limit, sunrise, a lightning strike within range.</p>
+
+    <p>Each triggers a gesture — a swell, a strike, a modulation, the entry of a section. But the critical rule is this:</p>
+
+    <p class="thesis">An event is never played the moment it is detected. It is scheduled to the next musical boundary.</p>
+
+    <p>A thunderclap that lands on the downbeat is music. The same sample fired the instant an API response arrives is a sound effect. Pluck makes the difference a one-liner — <code>timeline.nextBar()</code> gives you the next boundary, and <code>scheduleBeat</code> places the gesture there — and it is the difference between a piece that feels composed and one that feels wired up.</p>
+
+    <p>Temperature crossing 0°C deserves special treatment. Freezing is a genuine phase change in the world; give it a phase change in the music — an inversion, a register shift, a change of instrument family. Most weather is a gradient. Freezing is one of the few places where the atmosphere itself has a hard edge, and the music should use it.</p>
+  </section>
+
+  <section>
+    <h2>Composing the future</h2>
+
+    <p>Forecast data is the strongest idea available to this project and the easiest to overlook. A one-call forecast gives minute-by-minute precipitation for the coming hour and hourly conditions for two days. The piece can therefore know things that have not happened yet.</p>
+
+    <p>If rain begins in eighteen minutes, the rain material should not appear at minute eighteen. It should enter now, barely audible, and rise. If a front arrives tonight, the harmony can start leaning toward its mode this afternoon.</p>
+
+    <p>This is what separates a piece that <em>reacts</em> from a piece that appears to have been <em>written</em>. Anticipation is most of what makes music feel intentional, and here it comes free from the data. It also solves the hardest problem in weather-driven audio — that real weather transitions are far too slow to be musically legible — by letting the transition begin long before the weather does.</p>
+  </section>
+
+  <section>
+    <h2>The instrument itself</h2>
+
+    <p>A deliberately small palette, because a small palette forced into wide expressive range produces a coherent voice, and a large palette produces a soundboard.</p>
+
+    <ul>
+      <li><strong>Struck and plucked one-shots.</strong> A handful of short samples — something metallic, something wooden, something with a soft mallet. These carry rhythm and figuration.</li>
+      <li><strong>Oscillator drones.</strong> Pads and bass built from tuned oscillators through filters, so their pitch, brightness and movement are all continuously controllable with no assets at all.</li>
+      <li><strong>A noise texture.</strong> One short looped noise buffer, filtered, for wind and rain beds.</li>
+      <li><strong>Optionally, one field recording.</strong> If a real recorded ambience earns its place, stream it rather than decoding it — this is exactly what Pluck's streaming source exists for, and it keeps a long file from costing hundreds of megabytes of memory.</li>
+    </ul>
+
+    <p>Everything pitched should come from one scale, chosen by the mode mapping and shared across every section. Nothing sounds more accidental than generative music where the voices are not in agreement about what key they are in.</p>
+  </section>
+
+  <section>
+    <h2>What Pluck does here</h2>
+
+    <p>The performance layer is almost entirely Pluck, and the design above is shaped so that nearly every part of the library is doing real work.</p>
+
+    <div class="kit">
+      <div><code>Timeline</code><p>The transport. One instance, started on the first user gesture, running for the life of the page.</p></div>
+      <div><code>Tempo</code><p>Tempo from solar elevation and pressure trend. Because tempo changes re-anchor rather than recompute from zero, the piece can breathe without disturbing anything already played.</p></div>
+      <div><code>everyBeat</code><p>The generative heartbeat. Subdivision comes from precipitation rate; the callback receives the exact audio-clock time to schedule at, so density can be extreme without timing degrading.</p></div>
+      <div><code>nextBar</code> / <code>at</code><p>Quantization for every state transition and every event gesture. Nothing changes mid-phrase.</p></div>
+      <div><code>Sound</code> + <code>polyphony</code><p>One Sound per instrument, polyphony high enough for overlap. Voice stealing handles the downpour case without any counting in application code.</p></div>
+      <div><code>attack</code> / <code>release</code><p>Per-voice envelopes from the current texture: sharp attacks in dry cold, long ones in fog.</p></div>
+      <div><code>Group</code><p>One per section — pad, figure, bass, percussion. Section levels come straight from the musical state, and each group carries its own effects.</p></div>
+      <div><code>Reverb</code><p>On the pad group, size and mix from visibility. The most important effect in the design.</p></div>
+      <div><code>Filter</code><p>Across the texture, cutoff from dew point. The humidity axis.</p></div>
+      <div><code>Delay</code><p>On figures, with <code>timeline.beatsToSeconds(0.75)</code> for a tempo-locked dotted-eighth echo that stays locked when the tempo moves.</p></div>
+      <div><code>StereoPanner</code><p>Per voice, position and motion from wind.</p></div>
+      <div><code>Compressor</code><p>Holding the mix together as density swings, so a storm does not clip and a clear night is not inaudible.</p></div>
+      <div><code>stop({ fade })</code><p>Section entries and exits. Layers cross-fade rather than switch, with <code>attack</code> doing the incoming half.</p></div>
+      <div><code>BufferCache</code><p>Short samples shared across every voice — one fetch and one decode for the whole session.</p></div>
+      <div><code>events</code><p><code>ended</code> for chaining gestures, Timeline's <code>loop</code> for driving a visualizer in exact sync, <code>missed</code> as a diagnostic that the browser throttled the tab.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Making it reproducible</h2>
+
+    <p>Generative music has a credibility problem: if the output is arbitrary, the mapping is unfalsifiable and the listener has no reason to believe the weather is really in there.</p>
+
+    <p>Fix it by seeding every random choice from the location and the hour. The same weather, in the same place, at the same hour, produces a recognizably identical piece. Two different cities under identical conditions produce related but distinct ones. Someone can then listen twice and hear that something changed — which is the entire point, and impossible if every reload is a different roll.</p>
+
+    <p>The randomness is still doing its job. It is deciding <em>which</em> of the available notes and rhythms are used, within constraints the weather has fixed. It is just no longer deciding whether today sounds like today.</p>
+  </section>
+
+  <section>
+    <h2>How to tune this</h2>
+
+    <p>Because interpretation is a pure function, the whole artistic surface can be worked on without waiting for weather.</p>
+
+    <ul>
+      <li><strong>A scrub tool.</strong> Feed a year of historical observations through the interpreter and render it in a minute. You will hear immediately whether summer and winter are actually different, whether storms read as storms, and whether the piece has any range at all.</li>
+      <li><strong>Fake weather in the interface.</strong> Sliders for every reading, wired straight into the musical state. This is how the mapping table gets argued into its final form — by ear, in seconds, not by waiting for a front.</li>
+      <li><strong>Tests on the mapping.</strong> Freezing produces the phase-change gesture; falling pressure always darkens the mode; nothing ever produces an out-of-range parameter. Cheap to write and they stop the mapping quietly rotting.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>What Pluck still needs</h2>
+
+    <p>Honest accounting. Three of these are small, and the first is the only one that genuinely shapes the design.</p>
+
+    <div class="gap blocking">
+      <h3>Sample pitch control<span class="tag">Blocking</span></h3>
+      <p>There is no <code>playbackRate</code> or <code>detune</code> on a Sound, so one sample is one pitch. Without it, a pitched sampled instrument needs a separate file per note — which pushes straight back toward a large asset library and undercuts the whole premise.</p>
+    </div>
+
+    <div class="gap">
+      <h3>Live oscillator frequency<span class="tag">Wanted</span></h3>
+      <p>Wave options are read at voice creation, so a drone cannot currently glide between pitches without being rebuilt. Sliding pitch is one of the most natural gestures available for wind and pressure.</p>
+    </div>
+
+    <div class="gap">
+      <h3>Group nesting<span class="tag">Wanted</span></h3>
+      <p>A Group always outputs to the destination, so sections cannot feed a master bus. One compressor across the whole mix currently has to be attached per-section instead.</p>
+    </div>
+
+    <div class="gap">
+      <h3>Ramped effect parameters<span class="tag">Nice</span></h3>
+      <p>Effect parameters set instantly. Weather-driven changes want to sweep — a <code>rampTo(value, seconds)</code> on effect parameters would remove a lot of manual interpolation from the performance layer.</p>
+    </div>
+
+    <div class="gap">
+      <h3>A noise source<span class="tag">Nice</span></h3>
+      <p>Wind and rain beds want filtered noise. Workable today with a short looped noise buffer generated at startup; a built-in source would be tidier and would keep the asset count at zero.</p>
+    </div>
+
+    <p>All five are general-purpose — any sampler or synthesis application wants them — so adding them keeps Pluck neutral rather than bending it toward this project.</p>
+  </section>
+
+  <section>
+    <h2>Decisions that are yours</h2>
+
+    <p>Places where this document deliberately stops, because taste rather than architecture has to answer.</p>
+
+    <ul>
+      <li><strong>Is there a pulse at all?</strong> Everything above assumes meter. A free-time drift with no grid is equally defensible and would use Pluck differently — scheduling in seconds rather than beats.</li>
+      <li><strong>How tonal?</strong> The mode mapping assumes a scale. A purely spectral approach, tuning drones to intervals derived from the data itself, would be stranger and more distinctive.</li>
+      <li><strong>Does place matter beyond its weather?</strong> Latitude, coast or desert, altitude — these could colour the palette independently of conditions, so that two cities under identical weather still sound like different cities.</li>
+      <li><strong>One continuous stream, or movements?</strong> A piece that turns over every few minutes into a new section has more shape; one that never restarts is more honest to the fact that weather never restarts either.</li>
+      <li><strong>Is it seen as well as heard?</strong> Timeline's <code>loop</code> event can drive a visual in exact sync with the audio clock, which is rare and worth something — but it is a second project and should be decided as one.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p>Foundational document for a weather music application built on Pluck. Establishes architecture, mapping and constraints; contains no implementation. The mapping table in particular is a starting position drafted to be revised by ear.</p>
+  </footer>
+
+</div>
