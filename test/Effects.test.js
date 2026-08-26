@@ -617,3 +617,92 @@ describe('Reverb', () => {
     expect(reverb.convolver.buffer.length).toBeGreaterThan(0)
   })
 })
+
+describe('rampTo', () => {
+  const ramp = (param, from, to, seconds, time = 0) => [
+    { type: 'cancelScheduledValues', time },
+    { type: 'setValueAtTime', value: from, time },
+    { type: 'linearRampToValueAtTime', value: to, time: time + seconds }
+  ]
+
+  test('mix ramps wet and dry together', () => {
+    const effect = new Effect(context, { mix: 1 })
+    effect.rampTo('mix', 0.25, 2)
+
+    expect(effect.wetGain.gain.automation).toEqual(ramp(null, 1, 0.25, 2))
+    expect(effect.dryGain.gain.automation).toEqual(ramp(null, 0, 0.75, 2))
+  })
+
+  test('mix clamps before ramping', () => {
+    const effect = new Effect(context, { mix: 0.5 })
+    effect.rampTo('mix', 4, 1)
+
+    expect(effect.wetGain.gain.automation.at(-1).value).toBe(1)
+  })
+
+  test('a filter frequency sweeps', () => {
+    const filter = new Filter(context, { frequency: 1000 })
+    filter.rampTo('frequency', 400, 3)
+
+    expect(filter.filter.frequency.automation).toEqual(ramp(null, 1000, 400, 3))
+  })
+
+  test('returns the effect so ramps can be chained', () => {
+    const filter = new Filter(context)
+    expect(filter.rampTo('frequency', 800, 1).rampTo('q', 8, 1)).toBe(filter)
+  })
+
+  test('a parameter that is not an AudioParam warns', () => {
+    const distortion = new Distortion(context)
+    distortion.rampTo('amount', 0.9, 1)
+
+    expect(console_.saw('warn', "Cannot ramp 'amount'")).toBe(true)
+  })
+
+  test('an unknown name warns', () => {
+    const filter = new Filter(context)
+    filter.rampTo('colour', 1, 1)
+
+    expect(console_.saw('warn', "Cannot ramp 'colour'")).toBe(true)
+  })
+
+  test('pan clamps to -1..1', () => {
+    const panner = new StereoPanner(context)
+    panner.rampTo('pan', 5, 1)
+
+    expect(panner.panner.pan.automation.at(-1).value).toBe(1)
+  })
+
+  test('delay feedback clamps below unity', () => {
+    const delay = new Delay(context)
+    delay.rampTo('feedback', 2, 1)
+
+    expect(delay.feedbackGain.gain.automation.at(-1).value).toBe(0.95)
+  })
+
+  test('tremolo depth ramps both the depth and the offset', () => {
+    const tremolo = new Tremolo(context, { depth: 0.2 })
+    tremolo.rampTo('depth', 0.5, 2)
+
+    expect(tremolo.depthGain.gain.automation).toEqual(ramp(null, 0.2, 0.5, 2))
+    expect(tremolo.tremoloGain.gain.automation).toEqual(ramp(null, 0.8, 0.5, 2))
+  })
+
+  test('compressor parameters are ramped by name', () => {
+    const compressor = new Compressor(context)
+    compressor.rampTo('threshold', -6, 0.5)
+
+    expect(compressor.compressor.threshold.automation).toEqual(ramp(null, -24, -6, 0.5))
+  })
+
+  test('seconds of 0 snaps', () => {
+    const filter = new Filter(context, { frequency: 1000 })
+    filter.rampTo('frequency', 200, 0)
+
+    expect(filter.filter.frequency.value).toBe(200)
+    expect(filter.filter.frequency.automation).toEqual([
+      { type: 'cancelScheduledValues', time: 0 },
+      { type: 'setValueAtTime', value: 1000, time: 0 }
+    ])
+  })
+})

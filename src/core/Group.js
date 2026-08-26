@@ -12,12 +12,13 @@ class Group {
     }
 
     const gainNode = context.createGain()
-    gainNode.connect(context.destination)
-    
+
     const properties = {
       context: context,
       gainNode,
       sounds: [],
+      groups: [],
+      parent: null,
       volume: 1,
       muted: false,
       previousVolume: 1,
@@ -25,25 +26,41 @@ class Group {
       // point of a bus: one reverb for the kit, not one per drum.
       effects: [],
       taps: new Set(),
+      // Default output is the destination; re-pointed when this group is
+      // nested inside another, so sections can feed a master bus.
+      output: context.destination,
       events: new Events(),
       // One 'ended' listener per member, kept so it can be detached again when
       // the sound leaves the group.
       endedListeners: new Map()
     }
     
-    groupProperties.set(this, properties)    
+    groupProperties.set(this, properties)
+    this.rebuildOutputChain()
   }
 
   async play() {
-    const promises = this.sounds.map(async (sound) => {
-      if (!sound.isPlaying) {
-        try {
-          await sound.play({ fromGroup: true })
-        } catch (error) {
-          console.error("Error playing sound:", error)
+    const properties = groupProperties.get(this)
+    const promises = [
+      ...this.sounds.map(async (sound) => {
+        if (!sound.isPlaying) {
+          try {
+            await sound.play({ fromGroup: true })
+          } catch (error) {
+            console.error("Error playing sound:", error)
+          }
         }
-      }
-    })
+      }),
+      ...properties.groups.map(async (group) => {
+        if (!group.isPlaying) {
+          try {
+            await group.play()
+          } catch (error) {
+            console.error("Error playing group:", error)
+          }
+        }
+      })
+    ]
     await Promise.all(promises)
     this.events.trigger('play', this)
   }
@@ -58,17 +75,27 @@ class Group {
     // their stopping triggers -- the same order a Sound uses.
     this.events.trigger('stop', this)
 
-    const promises = this.sounds.map(async (sound) => {
-      if (sound.isPlaying) {
-        await sound.stop(options)
-      }
-    })
+    const properties = groupProperties.get(this)
+    const promises = [
+      ...this.sounds.map(async (sound) => {
+        if (sound.isPlaying) {
+          await sound.stop(options)
+        }
+      }),
+      ...properties.groups.map(async (group) => {
+        if (group.isPlaying) {
+          await group.stop(options)
+        }
+      })
+    ]
     await Promise.all(promises)
   }
 
-  /** True while any member is sounding. */
+  /** True while any member sound or nested group is sounding. */
   get isPlaying() {
+    const properties = groupProperties.get(this)
     return this.sounds.some(sound => sound.isPlaying)
+      || properties.groups.some(group => group.isPlaying)
   }
 
   /**
@@ -135,9 +162,84 @@ class Group {
     sound.output = sound.context.destination
     this.unwatchSound(sound)
     this.sounds.splice(index, 1)
-    if (this.sounds.length === 0) {
-      this.outputNode.disconnect(this.context.destination)
+  }
+
+  /**
+   * Nests other groups inside this one. Each child's output is re-pointed into
+   * this group's gain node, so a pad bus and a drum bus can share one master
+   * compressor. Nested groups stay independently playable — unlike a grouped
+   * sound, a section is meant to be started and stopped on its own.
+   */
+  addGroups(groups) {
+    if (!Array.isArray(groups)) {
+      console.error("Not an array of groups")
+      return
     }
+
+    const properties = groupProperties.get(this)
+
+    groups.forEach((group) => {
+      if (!(group instanceof Group)) {
+        console.error("The group is not an instance of Group class:", group)
+        return
+      }
+
+      if (group === this) {
+        console.error("Cannot add a group to itself")
+        return
+      }
+
+      if (group.context !== this.context) {
+        console.error("Cannot add group: mismatched audio contexts", group)
+        return
+      }
+
+      if (this.feedsInto(group)) {
+        console.error("Cannot add group: that would create a cycle")
+        return
+      }
+
+      if (properties.groups.includes(group)) {
+        console.warn("The group is already nested here")
+        return
+      }
+
+      const previous = groupProperties.get(group).parent
+      if (previous && previous !== this) previous.removeGroup(group)
+
+      groupProperties.get(group).parent = this
+      group.output = this
+      properties.groups.push(group)
+      this.watchSound(group)
+    })
+  }
+
+  removeGroup(group) {
+    const properties = groupProperties.get(this)
+    const index = properties.groups.indexOf(group)
+    if (index === -1) {
+      console.warn("The group is not nested here")
+      return
+    }
+
+    const child = groupProperties.get(group)
+    child.parent = null
+    group.output = group.context.destination
+    this.unwatchSound(group)
+    properties.groups.splice(index, 1)
+  }
+
+  /**
+   * True when `group` is this group or an ancestor, i.e. when nesting `group`
+   * inside this one would loop the graph.
+   */
+  feedsInto(group) {
+    let node = this
+    while (node) {
+      if (node === group) return true
+      node = groupProperties.get(node).parent
+    }
+    return false
   }
 
   /* ---- effects --------------------------------------------------------- */
@@ -191,7 +293,7 @@ class Group {
     return rebuildChain(
       properties.gainNode,
       properties.effects,
-      [properties.context.destination, ...properties.taps]
+      [properties.output, ...properties.taps]
     )
   }
 
@@ -255,6 +357,27 @@ class Group {
 
   get sounds() {
     return groupProperties.get(this).sounds
+  }
+
+  /** Nested groups, in the order they were added. */
+  get groups() {
+    return [...groupProperties.get(this).groups]
+  }
+
+  /**
+   * Where this group's chain currently feeds. Defaults to the context
+   * destination; set to another group (or a node) to nest this bus.
+   */
+  get output() {
+    return groupProperties.get(this).output
+  }
+
+  set output(node) {
+    const properties = groupProperties.get(this)
+    const destination = node instanceof Group ? node.gainNode : node
+    if (properties.output === destination) return
+    properties.output = destination
+    this.rebuildOutputChain()
   }
 
   get volume() {

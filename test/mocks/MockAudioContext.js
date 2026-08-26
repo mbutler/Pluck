@@ -110,6 +110,8 @@ class MockAudioBufferSourceNode extends MockAudioScheduledSourceNode {
     super('bufferSource')
     this.buffer = null
     this.loop = false
+    this.playbackRate = new MockAudioParam(1)
+    this.detune = new MockAudioParam(0)
   }
 }
 
@@ -118,6 +120,7 @@ class MockOscillatorNode extends MockAudioScheduledSourceNode {
     super('oscillator')
     this.type = 'sine'
     this.frequency = new MockAudioParam(440)
+    this.detune = new MockAudioParam(0)
   }
 }
 
@@ -219,6 +222,7 @@ export class MockAudioElement {
     this.currentTime = 0
     this.preload = 'auto'
     this.crossOrigin = null
+    this.playbackRate = 1
     this.paused = true
     this.playCalls = 0
     this.pauseCalls = 0

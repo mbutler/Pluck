@@ -1,4 +1,5 @@
 import Effect from './Effect.js'
+import { rampParam } from '../ramp.js'
 
 /**
  * Amplitude modulation.
@@ -49,6 +50,26 @@ class Tremolo extends Effect {
     const depth = Math.min(Math.max(value, 0), 0.5)
     this.depthGain.gain.value = depth
     this.tremoloGain.gain.value = 1 - depth
+  }
+
+  audioParams() {
+    return { speed: this.lfo.frequency }
+  }
+
+  prepareRamp(name, value) {
+    if (name === 'depth') return Math.min(Math.max(value, 0), 0.5)
+    return super.prepareRamp(name, value)
+  }
+
+  rampTo(name, value, seconds = 1) {
+    if (name === 'depth') {
+      const depth = this.prepareRamp('depth', value)
+      const now = this.context.currentTime
+      rampParam(this.depthGain.gain, depth, seconds, now)
+      rampParam(this.tremoloGain.gain, 1 - depth, seconds, now)
+      return this
+    }
+    return super.rampTo(name, value, seconds)
   }
 
   /** The LFO runs whether or not anything is playing, so it must be stopped. */

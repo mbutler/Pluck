@@ -18,6 +18,15 @@ class StereoPanner extends Effect {
   set pan(value) {
     this.panner.pan.value = Math.min(Math.max(value, -1), 1)
   }
+
+  audioParams() {
+    return { pan: this.panner.pan }
+  }
+
+  prepareRamp(name, value) {
+    if (name === 'pan') return Math.min(Math.max(value, -1), 1)
+    return super.prepareRamp(name, value)
+  }
 }
 
 export default StereoPanner

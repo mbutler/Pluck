@@ -29,6 +29,16 @@ class Compressor extends Effect {
 
   get release() { return this.compressor.release.value }
   set release(value) { this.compressor.release.value = value }
+
+  audioParams() {
+    return {
+      threshold: this.compressor.threshold,
+      knee: this.compressor.knee,
+      ratio: this.compressor.ratio,
+      attack: this.compressor.attack,
+      release: this.compressor.release
+    }
+  }
 }
 
 export default Compressor

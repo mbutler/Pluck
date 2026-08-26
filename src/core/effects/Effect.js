@@ -1,3 +1,5 @@
+import { rampParam } from '../ramp.js'
+
 /**
  * Base class for effects, and the contract anything pluggable has to meet:
  * an `input` node to connect into and an `output` node to connect from.
@@ -33,6 +35,51 @@ class Effect {
   route(head, tail) {
     this.input.connect(head)
     tail.connect(this.wetGain)
+  }
+
+  /**
+   * AudioParams this effect can ramp, keyed by the same names as the
+   * properties. Subclasses override. `mix` is handled in the base.
+   */
+  audioParams() {
+    return {}
+  }
+
+  /**
+   * Clamps a value about to be ramped. Subclasses override for parameters
+   * that have a legal range (pan, feedback, depth).
+   */
+  prepareRamp(name, value) {
+    if (name === 'mix') return Math.min(1, Math.max(0, value))
+    return value
+  }
+
+  /**
+   * Linearly ramps a named parameter over `seconds`. `mix` is always available;
+   * everything else is whatever `audioParams()` exposes. Parameters that are
+   * not AudioParams (a distortion amount, a reverb time) cannot be ramped and
+   * warn instead.
+   *
+   * @returns {Effect} this, so ramps can be chained
+   */
+  rampTo(name, value, seconds = 1) {
+    const target = this.prepareRamp(name, value)
+    const now = this.context.currentTime
+
+    if (name === 'mix') {
+      rampParam(this.wetGain.gain, target, seconds, now)
+      rampParam(this.dryGain.gain, 1 - target, seconds, now)
+      return this
+    }
+
+    const param = this.audioParams()[name]
+    if (!param) {
+      console.warn(`Cannot ramp '${name}' on this effect`)
+      return this
+    }
+
+    rampParam(param, target, seconds, now)
+    return this
   }
 
   /**

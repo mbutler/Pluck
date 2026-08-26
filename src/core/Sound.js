@@ -3,6 +3,8 @@ import Voice from './Voice.js'
 import { rebuildChain } from './chain.js'
 import { createAudioContext } from './audioContext.js'
 import bufferCache, { fetchAndDecode } from './BufferCache.js'
+import { rampParam } from './ramp.js'
+import { buildNoise, noiseTypes } from './noise.js'
 
 const soundProperties = new WeakMap()
 
@@ -22,10 +24,14 @@ class Sound {
       source: null,
       audioBuffer: options.audioBuffer || null,
       volume: options.volume || 1,
-      loop: options.loop || false,
+      loop: options.loop ?? (options.noise ? true : false),
       attack: options.attack || 0.04,
       release: options.release || 0.04,
       offset: options.offset || 0,
+      playbackRate: options.playbackRate ?? 1,
+      detune: options.detune ?? 0,
+      frequency: options.frequency ?? options.wave?.frequency ?? 440,
+      noise: null,
       gainNode,
       mediaStream: isMediaStream(options.input) ? options.input : null,
       clearBuffer: options.clearBuffer || false,
@@ -57,6 +63,8 @@ class Sound {
     }
     soundProperties.set(this, properties)
 
+    if (options.noise) this.recordNoise(options.noise)
+
     this.initialized = this.initialize(options)
   }
 
@@ -76,12 +84,15 @@ class Sound {
       await this.loadFromFile(options.file)
     } else if (options.audioBuffer) {
       // Nothing to build: the buffer is all a voice needs.
+      if (options.noise) this.recordNoise(options.noise)
+    } else if (options.noise) {
+      this.initFromNoise(options.noise)
     } else if (options.wave) {
       this.initFromWave(options.wave)
     } else if (options.input) {
       await this.initFromInput(isMediaStream(options.input) ? options.input : null)
     } else {
-      this.initFromWave({ type: 'sine', frequency: 440 })
+      this.initFromWave({ type: 'sine' })
     }
   }
 
@@ -99,7 +110,38 @@ class Sound {
   }
 
   initFromWave(waveOptions) {
-    soundProperties.get(this).waveOptions = waveOptions
+    const properties = soundProperties.get(this)
+    properties.waveOptions = waveOptions
+    if (waveOptions.frequency !== undefined) properties.frequency = waveOptions.frequency
+  }
+
+  /**
+   * Fills a short looping buffer with noise. Generated at init so a wind or
+   * rain bed needs no asset, and cheap enough that several of them are fine.
+   *
+   * `noise` may be `true`, a type string (`white`, `pink`, `brown`), or
+   * `{ type, duration }` with duration in seconds (default 1).
+   */
+  initFromNoise(noise) {
+    const properties = soundProperties.get(this)
+    const { type, duration } = properties.noise || this.recordNoise(noise)
+    this.audioBuffer = buildNoise(this.context, type, duration)
+  }
+
+  recordNoise(noise) {
+    const properties = soundProperties.get(this)
+    const type = noise === true
+      ? 'white'
+      : (typeof noise === 'string' ? noise : noise.type || 'white')
+    const duration = typeof noise === 'object' && noise !== null
+      ? (noise.duration ?? 1)
+      : 1
+    const kind = noiseTypes.includes(type) ? type : 'white'
+    if (kind !== type) {
+      console.warn(`Unknown noise type '${type}', using white`)
+    }
+    properties.noise = { type: kind, duration }
+    return properties.noise
   }
 
   /**
@@ -168,19 +210,29 @@ class Sound {
   /**
    * Builds a fresh, unconnected source node. Source nodes cannot be restarted,
    * so this runs once per voice; the voice takes ownership of wiring it up.
+   *
+   * @param {object} [overrides]  per-voice pitch: `playbackRate`, `detune`,
+   *   `frequency`. Anything omitted takes the Sound's current value.
    */
-  createSourceNode() {
+  createSourceNode(overrides = {}) {
+    const playbackRate = overrides.playbackRate ?? this.playbackRate
+    const detune = overrides.detune ?? this.detune
+    const frequency = overrides.frequency ?? this.frequency
+
     if (this.audioBuffer) {
       const source = this.context.createBufferSource()
       source.buffer = this.audioBuffer
       source.loop = this.loop
+      source.playbackRate.value = playbackRate
+      source.detune.value = detune
       return source
     }
 
     if (this.waveOptions) {
       const source = this.context.createOscillator()
       source.type = this.waveOptions.type || 'sine'
-      source.frequency.value = this.waveOptions.frequency || 440
+      source.frequency.value = frequency
+      source.detune.value = detune
       return source
     }
 
@@ -215,6 +267,10 @@ class Sound {
    *   audio clock rather than on whenever a timer happened to fire.
    * @param {boolean} [options.fromGroup=false]  set by Group when it plays its
    *   members; a grouped sound refuses to be played directly.
+   * @param {number}  [options.playbackRate]  per-voice speed/pitch for a buffer
+   *   source. Falls back to the Sound's `playbackRate`.
+   * @param {number}  [options.detune]  per-voice detune in cents.
+   * @param {number}  [options.frequency]  per-voice oscillator frequency in Hz.
    */
   async play(options = {}) {
     // A boolean here is the old positional signature, play(fromGroup, when).
@@ -223,7 +279,7 @@ class Sound {
       throw new TypeError('play() takes an options object, e.g. play({ when: time })')
     }
 
-    const { when = 0, fromGroup = false } = options
+    const { when = 0, fromGroup = false, playbackRate, detune, frequency } = options
     const properties = soundProperties.get(this)
 
     if (this.isGrouped && !fromGroup) {
@@ -245,6 +301,8 @@ class Sound {
     // A streamed sound has no voices; the element itself is what plays.
     if (properties.audioElement) {
       this.cancelFadeOut()
+      if (playbackRate !== undefined) properties.audioElement.playbackRate = playbackRate
+      else properties.audioElement.playbackRate = properties.playbackRate
       this.playStream(when)
       return
     }
@@ -258,7 +316,7 @@ class Sound {
     // last play() left behind and build a new one. Grouped sounds included:
     // the fresh source feeds this.gainNode, which is already wired to the
     // group, so the routing survives.
-    const source = this.createSourceNode()
+    const source = this.createSourceNode({ playbackRate, detune, frequency })
     if (!source || !source.start) {
       console.error('No source to play')
       this.isPlaying = false
@@ -419,9 +477,16 @@ class Sound {
       attack: properties.attack,
       release: properties.release,
       offset: properties.offset,
+      playbackRate: properties.playbackRate,
+      detune: properties.detune,
+      frequency: properties.frequency,
       clearBuffer: properties.clearBuffer,
       polyphony: properties.polyphony,
       cache: properties.useCache
+    }
+
+    if (properties.noise) {
+      options.noise = { ...properties.noise }
     }
 
     if (properties.streamUrl) {
@@ -630,6 +695,98 @@ class Sound {
   set offset(value) {
     const properties = soundProperties.get(this)
     properties.offset = value
+  }
+
+  get playbackRate() {
+    return soundProperties.get(this).playbackRate
+  }
+
+  /**
+   * Speed of a buffer or stream, where 1 is original. Writes through to any
+   * voices currently sounding, so a live change retunes them all. Oscillators
+   * ignore this; use `frequency` for those.
+   */
+  set playbackRate(value) {
+    const properties = soundProperties.get(this)
+    properties.playbackRate = value
+    this.forEachPitchParam('playbackRate', param => { param.value = value })
+    if (properties.audioElement) properties.audioElement.playbackRate = value
+  }
+
+  get detune() {
+    return soundProperties.get(this).detune
+  }
+
+  /** Detune in cents. Writes through to every sounding buffer or oscillator. */
+  set detune(value) {
+    const properties = soundProperties.get(this)
+    properties.detune = value
+    this.forEachPitchParam('detune', param => { param.value = value })
+  }
+
+  get frequency() {
+    return soundProperties.get(this).frequency
+  }
+
+  /**
+   * Oscillator frequency in Hz. Writes through to every sounding oscillator,
+   * so a drone can be retuned without being rebuilt. Buffer sources ignore it.
+   */
+  set frequency(value) {
+    const properties = soundProperties.get(this)
+    properties.frequency = value
+    if (properties.waveOptions) properties.waveOptions.frequency = value
+    this.forEachPitchParam('frequency', param => { param.value = value })
+  }
+
+  /** The noise description if this sound was built from noise, otherwise null. */
+  get noise() {
+    const noise = soundProperties.get(this).noise
+    return noise ? { ...noise } : null
+  }
+
+  /**
+   * Ramps every sounding buffer or stream to a new playback rate.
+   * The stored value updates immediately, so a voice started during the ramp
+   * is already at the target.
+   */
+  rampPlaybackRateTo(value, duration = 1) {
+    const properties = soundProperties.get(this)
+    properties.playbackRate = value
+    const now = this.context.currentTime
+    this.forEachPitchParam('playbackRate', param => rampParam(param, value, duration, now))
+    if (properties.audioElement) properties.audioElement.playbackRate = value
+  }
+
+  /** Ramps detune in cents. Linear, because cents are already logarithmic. */
+  rampDetuneTo(value, duration = 1) {
+    soundProperties.get(this).detune = value
+    const now = this.context.currentTime
+    this.forEachPitchParam('detune', param => rampParam(param, value, duration, now))
+  }
+
+  /**
+   * Ramps every sounding oscillator to a new frequency. This is the glide:
+   * a drone can slide with wind or pressure without being torn down.
+   */
+  rampFrequencyTo(value, duration = 1) {
+    const properties = soundProperties.get(this)
+    properties.frequency = value
+    if (properties.waveOptions) properties.waveOptions.frequency = value
+    const now = this.context.currentTime
+    this.forEachPitchParam('frequency', param => rampParam(param, value, duration, now))
+  }
+
+  /**
+   * Calls `fn` with the named AudioParam on every voice source that has one.
+   * Buffer sources have playbackRate and detune; oscillators have frequency
+   * and detune; a stream has neither as AudioParams.
+   */
+  forEachPitchParam(name, fn) {
+    soundProperties.get(this).voices.forEach(voice => {
+      const param = voice.source[name]
+      if (param && typeof param.setValueAtTime === 'function') fn(param)
+    })
   }
 
   get gainNode() {

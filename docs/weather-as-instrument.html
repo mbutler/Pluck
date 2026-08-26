@@ -587,7 +587,7 @@
     <ul>
       <li><strong>Struck and plucked one-shots.</strong> A handful of short samples — something metallic, something wooden, something with a soft mallet. These carry rhythm and figuration.</li>
       <li><strong>Oscillator drones.</strong> Pads and bass built from tuned oscillators through filters, so their pitch, brightness and movement are all continuously controllable with no assets at all.</li>
-      <li><strong>A noise texture.</strong> One short looped noise buffer, filtered, for wind and rain beds.</li>
+      <li><strong>A noise texture.</strong> <code>new Sound({ noise: 'pink' })</code> — a generated looping buffer, filtered, for wind and rain beds. No asset.</li>
       <li><strong>Optionally, one field recording.</strong> If a real recorded ambience earns its place, stream it rather than decoding it — this is exactly what Pluck's streaming source exists for, and it keeps a long file from costing hundreds of megabytes of memory.</li>
     </ul>
 
@@ -604,15 +604,17 @@
       <div><code>Tempo</code><p>Tempo from solar elevation and pressure trend. Because tempo changes re-anchor rather than recompute from zero, the piece can breathe without disturbing anything already played.</p></div>
       <div><code>everyBeat</code><p>The generative heartbeat. Subdivision comes from precipitation rate; the callback receives the exact audio-clock time to schedule at, so density can be extreme without timing degrading.</p></div>
       <div><code>nextBar</code> / <code>at</code><p>Quantization for every state transition and every event gesture. Nothing changes mid-phrase.</p></div>
-      <div><code>Sound</code> + <code>polyphony</code><p>One Sound per instrument, polyphony high enough for overlap. Voice stealing handles the downpour case without any counting in application code.</p></div>
+      <div><code>Sound</code> + <code>polyphony</code><p>One Sound per instrument, polyphony high enough for overlap. Voice stealing handles the downpour case without any counting in application code. <code>playbackRate</code> / <code>detune</code> on play, so one sample covers a scale.</p></div>
+      <div><code>frequency</code> / <code>rampFrequencyTo</code><p>Live oscillator pitch. A drone glides with wind or pressure without being rebuilt.</p></div>
       <div><code>attack</code> / <code>release</code><p>Per-voice envelopes from the current texture: sharp attacks in dry cold, long ones in fog.</p></div>
-      <div><code>Group</code><p>One per section — pad, figure, bass, percussion. Section levels come straight from the musical state, and each group carries its own effects.</p></div>
-      <div><code>Reverb</code><p>On the pad group, size and mix from visibility. The most important effect in the design.</p></div>
-      <div><code>Filter</code><p>Across the texture, cutoff from dew point. The humidity axis.</p></div>
+      <div><code>Group</code><p>One per section — pad, figure, bass, percussion — nested in a master bus. Section levels come straight from the musical state, and each group carries its own effects. One compressor on the master holds the mix.</p></div>
+      <div><code>Reverb</code><p>On the pad group, size and mix from visibility. <code>rampTo('mix', value, seconds)</code> sweeps rather than jumps. The most important effect in the design.</p></div>
+      <div><code>Filter</code><p>Across the texture, cutoff from dew point. <code>rampTo('frequency', hz, seconds)</code> is the humidity axis moving.</p></div>
       <div><code>Delay</code><p>On figures, with <code>timeline.beatsToSeconds(0.75)</code> for a tempo-locked dotted-eighth echo that stays locked when the tempo moves.</p></div>
       <div><code>StereoPanner</code><p>Per voice, position and motion from wind.</p></div>
       <div><code>Compressor</code><p>Holding the mix together as density swings, so a storm does not clip and a clear night is not inaudible.</p></div>
       <div><code>stop({ fade })</code><p>Section entries and exits. Layers cross-fade rather than switch, with <code>attack</code> doing the incoming half.</p></div>
+      <div><code>noise</code><p>Wind and rain beds from a generated looping buffer — <code>new Sound({ noise: 'pink' })</code> — so the asset count stays at zero.</p></div>
       <div><code>BufferCache</code><p>Short samples shared across every voice — one fetch and one decode for the whole session.</p></div>
       <div><code>events</code><p><code>ended</code> for chaining gestures, Timeline's <code>loop</code> for driving a visualizer in exact sync, <code>missed</code> as a diagnostic that the browser throttled the tab.</p></div>
     </div>
@@ -641,36 +643,34 @@
   </section>
 
   <section>
-    <h2>What Pluck still needs</h2>
+    <h2>What this needed from Pluck</h2>
 
-    <p>Honest accounting. Three of these are small, and the first is the only one that genuinely shapes the design.</p>
+    <p>Five gaps in the library, all now closed. They were general-purpose — any sampler or synthesis application wanted them — so filling them kept Pluck neutral rather than bending it toward this project.</p>
 
-    <div class="gap blocking">
-      <h3>Sample pitch control<span class="tag">Blocking</span></h3>
-      <p>There is no <code>playbackRate</code> or <code>detune</code> on a Sound, so one sample is one pitch. Without it, a pitched sampled instrument needs a separate file per note — which pushes straight back toward a large asset library and undercuts the whole premise.</p>
+    <div class="gap">
+      <h3>Sample pitch control</h3>
+      <p><code>playbackRate</code> and <code>detune</code> on a Sound, overridable per voice at <code>play()</code>. One sample covers a scale; the asset library stays small.</p>
     </div>
 
     <div class="gap">
-      <h3>Live oscillator frequency<span class="tag">Wanted</span></h3>
-      <p>Wave options are read at voice creation, so a drone cannot currently glide between pitches without being rebuilt. Sliding pitch is one of the most natural gestures available for wind and pressure.</p>
+      <h3>Live oscillator frequency</h3>
+      <p><code>frequency</code> writes through to a sounding oscillator. <code>rampFrequencyTo(hz, seconds)</code> is the glide for wind and pressure.</p>
     </div>
 
     <div class="gap">
-      <h3>Group nesting<span class="tag">Wanted</span></h3>
-      <p>A Group always outputs to the destination, so sections cannot feed a master bus. One compressor across the whole mix currently has to be attached per-section instead.</p>
+      <h3>Group nesting</h3>
+      <p><code>addGroups</code> and <code>group.output</code>. Section buses feed a master, so one compressor holds the whole mix.</p>
     </div>
 
     <div class="gap">
-      <h3>Ramped effect parameters<span class="tag">Nice</span></h3>
-      <p>Effect parameters set instantly. Weather-driven changes want to sweep — a <code>rampTo(value, seconds)</code> on effect parameters would remove a lot of manual interpolation from the performance layer.</p>
+      <h3>Ramped effect parameters</h3>
+      <p><code>effect.rampTo(name, value, seconds)</code>. Weather-driven changes sweep on the audio clock instead of jumping.</p>
     </div>
 
     <div class="gap">
-      <h3>A noise source<span class="tag">Nice</span></h3>
-      <p>Wind and rain beds want filtered noise. Workable today with a short looped noise buffer generated at startup; a built-in source would be tidier and would keep the asset count at zero.</p>
+      <h3>A noise source</h3>
+      <p><code>new Sound({ noise: 'white' | 'pink' | 'brown' })</code>. A generated looping buffer; wind and rain beds need no asset.</p>
     </div>
-
-    <p>All five are general-purpose — any sampler or synthesis application wants them — so adding them keeps Pluck neutral rather than bending it toward this project.</p>
   </section>
 
   <section>

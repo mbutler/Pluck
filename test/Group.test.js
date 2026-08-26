@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import Group from '../src/core/Group.js'
 import Sound from '../src/core/Sound.js'
+import Compressor from '../src/core/effects/Compressor.js'
 import {
   MockAudioContext,
   captureConsole,
@@ -527,5 +528,177 @@ describe('fading a group', () => {
 
     await stopping
     expect(seen).toEqual(['ended'])
+  })
+})
+
+describe('nesting', () => {
+  test('a nested group feeds the parent rather than the destination', async () => {
+    const master = new Group(context)
+    const pads = new Group(context)
+    const sound = bufferedSound()
+    await sound.initialized
+    pads.addSounds([sound])
+    master.addGroups([pads])
+
+    await pads.play()
+
+    expect(hasEdge(pads.gainNode, master.gainNode)).toBe(true)
+    expect(hasEdge(pads.gainNode, context.destination)).toBe(false)
+    expect(hasEdge(master.gainNode, context.destination)).toBe(true)
+    expect(pathExists(sound.source, context.destination)).toBe(true)
+  })
+
+  test('a nested group can still be played on its own', async () => {
+    const master = new Group(context)
+    const pads = new Group(context)
+    const sound = bufferedSound()
+    await sound.initialized
+    pads.addSounds([sound])
+    master.addGroups([pads])
+
+    await pads.play()
+
+    expect(sound.isPlaying).toBe(true)
+    expect(pads.isPlaying).toBe(true)
+    expect(master.isPlaying).toBe(true)
+  })
+
+  test('playing the parent plays nested groups', async () => {
+    const master = new Group(context)
+    const pads = new Group(context)
+    const drums = new Group(context)
+    const pad = bufferedSound()
+    const drum = bufferedSound()
+    await pad.initialized
+    await drum.initialized
+    pads.addSounds([pad])
+    drums.addSounds([drum])
+    master.addGroups([pads, drums])
+
+    await master.play()
+
+    expect(pad.isPlaying).toBe(true)
+    expect(drum.isPlaying).toBe(true)
+  })
+
+  test('stopping the parent stops nested groups', async () => {
+    const master = new Group(context)
+    const pads = new Group(context)
+    const sound = bufferedSound()
+    await sound.initialized
+    pads.addSounds([sound])
+    master.addGroups([pads])
+    await master.play()
+
+    await master.stop()
+
+    expect(sound.isPlaying).toBe(false)
+    expect(pads.isPlaying).toBe(false)
+    expect(master.isPlaying).toBe(false)
+  })
+
+  test('a parent effect processes every nested section', async () => {
+    const master = new Group(context)
+    const pads = new Group(context)
+    const sound = bufferedSound()
+    await sound.initialized
+    pads.addSounds([sound])
+    master.addGroups([pads])
+    const compressor = master.addEffect(new Compressor(context))
+    await pads.play()
+
+    expect(hasEdge(master.gainNode, compressor.input)).toBe(true)
+    expect(hasEdge(compressor.output, context.destination)).toBe(true)
+    expect(pathExists(sound.source, compressor.input)).toBe(true)
+  })
+
+  test('removing a nested group restores its direct routing', async () => {
+    const master = new Group(context)
+    const pads = new Group(context)
+    const sound = bufferedSound()
+    await sound.initialized
+    pads.addSounds([sound])
+    master.addGroups([pads])
+    master.removeGroup(pads)
+
+    expect(master.groups).toEqual([])
+    expect(hasEdge(pads.gainNode, context.destination)).toBe(true)
+    expect(hasEdge(pads.gainNode, master.gainNode)).toBe(false)
+
+    await pads.play()
+    expect(pathExists(sound.source, context.destination)).toBe(true)
+  })
+
+  test('output can be pointed at another group without addGroups', () => {
+    const master = new Group(context)
+    const pads = new Group(context)
+
+    pads.output = master
+
+    expect(hasEdge(pads.gainNode, master.gainNode)).toBe(true)
+    expect(hasEdge(pads.gainNode, context.destination)).toBe(false)
+  })
+
+  test('refuses a cycle', () => {
+    const master = new Group(context)
+    const pads = new Group(context)
+    master.addGroups([pads])
+    pads.addGroups([master])
+
+    expect(console_.saw('error', 'that would create a cycle')).toBe(true)
+    expect(pads.groups).toEqual([])
+  })
+
+  test('refuses to add a group to itself', () => {
+    const group = new Group(context)
+    group.addGroups([group])
+
+    expect(console_.saw('error', 'Cannot add a group to itself')).toBe(true)
+    expect(group.groups).toEqual([])
+  })
+
+  test('moving a group re-parents it', () => {
+    const one = new Group(context)
+    const two = new Group(context)
+    const pads = new Group(context)
+    one.addGroups([pads])
+    two.addGroups([pads])
+
+    expect(one.groups).toEqual([])
+    expect(two.groups).toEqual([pads])
+    expect(hasEdge(pads.gainNode, two.gainNode)).toBe(true)
+    expect(hasEdge(pads.gainNode, one.gainNode)).toBe(false)
+  })
+
+  test('the groups list cannot be mutated from outside', () => {
+    const master = new Group(context)
+    const pads = new Group(context)
+    master.addGroups([pads])
+
+    master.groups.push(new Group(context))
+
+    expect(master.groups.length).toBe(1)
+  })
+
+  test('parent ended waits for the last nested group', async () => {
+    const master = new Group(context)
+    const pads = new Group(context)
+    const drums = new Group(context)
+    const pad = bufferedSound()
+    const drum = bufferedSound()
+    await pad.initialized
+    await drum.initialized
+    pads.addSounds([pad])
+    drums.addSounds([drum])
+    master.addGroups([pads, drums])
+    let ended = 0
+    master.events.on('ended', () => ended++)
+
+    await master.play()
+    pad.source.onended()
+    expect(ended).toBe(0)
+
+    drum.source.onended()
+    expect(ended).toBe(1)
   })
 })

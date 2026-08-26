@@ -184,6 +184,55 @@ class BufferCache {
 }
 var BufferCache_default = new BufferCache;
 
+// src/core/ramp.js
+var rampParam = (param, value, seconds, currentTime) => {
+  param.cancelScheduledValues(currentTime);
+  param.setValueAtTime(param.value, currentTime);
+  if (seconds > 0)
+    param.linearRampToValueAtTime(value, currentTime + seconds);
+  else
+    param.value = value;
+  return param;
+};
+
+// src/core/noise.js
+var TYPES = ["white", "pink", "brown"];
+var fillWhite = (samples) => {
+  for (let i = 0;i < samples.length; i++) {
+    samples[i] = Math.random() * 2 - 1;
+  }
+};
+var fillPink = (samples) => {
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (let i = 0;i < samples.length; i++) {
+    const white = Math.random() * 2 - 1;
+    b0 = 0.99886 * b0 + white * 0.0555179;
+    b1 = 0.99332 * b1 + white * 0.0750759;
+    b2 = 0.969 * b2 + white * 0.153852;
+    b3 = 0.8665 * b3 + white * 0.3104856;
+    b4 = 0.55 * b4 + white * 0.5329522;
+    b5 = -0.7616 * b5 - white * 0.016898;
+    samples[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+    b6 = white * 0.115926;
+  }
+};
+var fillBrown = (samples) => {
+  let last = 0;
+  for (let i = 0;i < samples.length; i++) {
+    const white = Math.random() * 2 - 1;
+    last = (last + 0.02 * white) / 1.02;
+    samples[i] = Math.min(1, Math.max(-1, last * 3.5));
+  }
+};
+var fillers = { white: fillWhite, pink: fillPink, brown: fillBrown };
+var buildNoise = (context, type = "white", duration = 1) => {
+  const kind = TYPES.includes(type) ? type : "white";
+  const length = Math.max(1, Math.floor(context.sampleRate * Math.max(duration, 0.01)));
+  const buffer = context.createBuffer(1, length, context.sampleRate);
+  fillers[kind](buffer.getChannelData(0));
+  return buffer;
+};
+
 // src/core/Sound.js
 var soundProperties = new WeakMap;
 var isMediaStream = (value) => !!value && typeof value.getTracks === "function";
@@ -200,10 +249,14 @@ class Sound {
       source: null,
       audioBuffer: options.audioBuffer || null,
       volume: options.volume || 1,
-      loop: options.loop || false,
+      loop: options.loop ?? (options.noise ? true : false),
       attack: options.attack || 0.04,
       release: options.release || 0.04,
       offset: options.offset || 0,
+      playbackRate: options.playbackRate ?? 1,
+      detune: options.detune ?? 0,
+      frequency: options.frequency ?? options.wave?.frequency ?? 440,
+      noise: null,
       gainNode,
       mediaStream: isMediaStream(options.input) ? options.input : null,
       clearBuffer: options.clearBuffer || false,
@@ -222,6 +275,8 @@ class Sound {
       voices: []
     };
     soundProperties.set(this, properties);
+    if (options.noise)
+      this.recordNoise(options.noise);
     this.initialized = this.initialize(options);
   }
   async initialize(options) {
@@ -237,12 +292,17 @@ class Sound {
       this.initFromStream(options.stream);
     } else if (options.file) {
       await this.loadFromFile(options.file);
-    } else if (options.audioBuffer) {} else if (options.wave) {
+    } else if (options.audioBuffer) {
+      if (options.noise)
+        this.recordNoise(options.noise);
+    } else if (options.noise) {
+      this.initFromNoise(options.noise);
+    } else if (options.wave) {
       this.initFromWave(options.wave);
     } else if (options.input) {
       await this.initFromInput(isMediaStream(options.input) ? options.input : null);
     } else {
-      this.initFromWave({ type: "sine", frequency: 440 });
+      this.initFromWave({ type: "sine" });
     }
   }
   async loadFromFile(file) {
@@ -254,7 +314,26 @@ class Sound {
     }
   }
   initFromWave(waveOptions) {
-    soundProperties.get(this).waveOptions = waveOptions;
+    const properties = soundProperties.get(this);
+    properties.waveOptions = waveOptions;
+    if (waveOptions.frequency !== undefined)
+      properties.frequency = waveOptions.frequency;
+  }
+  initFromNoise(noise) {
+    const properties = soundProperties.get(this);
+    const { type, duration } = properties.noise || this.recordNoise(noise);
+    this.audioBuffer = buildNoise(this.context, type, duration);
+  }
+  recordNoise(noise) {
+    const properties = soundProperties.get(this);
+    const type = noise === true ? "white" : typeof noise === "string" ? noise : noise.type || "white";
+    const duration = typeof noise === "object" && noise !== null ? noise.duration ?? 1 : 1;
+    const kind = TYPES.includes(type) ? type : "white";
+    if (kind !== type) {
+      console.warn(`Unknown noise type '${type}', using white`);
+    }
+    properties.noise = { type: kind, duration };
+    return properties.noise;
   }
   initFromStream(url) {
     const properties = soundProperties.get(this);
@@ -295,17 +374,23 @@ class Sound {
     }
     begin();
   }
-  createSourceNode() {
+  createSourceNode(overrides = {}) {
+    const playbackRate = overrides.playbackRate ?? this.playbackRate;
+    const detune = overrides.detune ?? this.detune;
+    const frequency = overrides.frequency ?? this.frequency;
     if (this.audioBuffer) {
       const source = this.context.createBufferSource();
       source.buffer = this.audioBuffer;
       source.loop = this.loop;
+      source.playbackRate.value = playbackRate;
+      source.detune.value = detune;
       return source;
     }
     if (this.waveOptions) {
       const source = this.context.createOscillator();
       source.type = this.waveOptions.type || "sine";
-      source.frequency.value = this.waveOptions.frequency || 440;
+      source.frequency.value = frequency;
+      source.detune.value = detune;
       return source;
     }
     return null;
@@ -332,7 +417,7 @@ class Sound {
     if (typeof options !== "object" || options === null) {
       throw new TypeError("play() takes an options object, e.g. play({ when: time })");
     }
-    const { when = 0, fromGroup = false } = options;
+    const { when = 0, fromGroup = false, playbackRate, detune, frequency } = options;
     const properties = soundProperties.get(this);
     if (this.isGrouped && !fromGroup) {
       console.warn(`Cannot play the sound ${this.fileName} directly. It is in a group.`);
@@ -348,6 +433,10 @@ class Sound {
     }
     if (properties.audioElement) {
       this.cancelFadeOut();
+      if (playbackRate !== undefined)
+        properties.audioElement.playbackRate = playbackRate;
+      else
+        properties.audioElement.playbackRate = properties.playbackRate;
       this.playStream(when);
       return;
     }
@@ -355,7 +444,7 @@ class Sound {
       console.error("No audio buffer or source available to play");
       return;
     }
-    const source = this.createSourceNode();
+    const source = this.createSourceNode({ playbackRate, detune, frequency });
     if (!source || !source.start) {
       console.error("No source to play");
       this.isPlaying = false;
@@ -467,10 +556,16 @@ class Sound {
       attack: properties.attack,
       release: properties.release,
       offset: properties.offset,
+      playbackRate: properties.playbackRate,
+      detune: properties.detune,
+      frequency: properties.frequency,
       clearBuffer: properties.clearBuffer,
       polyphony: properties.polyphony,
       cache: properties.useCache
     };
+    if (properties.noise) {
+      options.noise = { ...properties.noise };
+    }
     if (properties.streamUrl) {
       options.stream = properties.streamUrl;
     } else if (properties.audioBuffer) {
@@ -625,6 +720,72 @@ class Sound {
   set offset(value) {
     const properties = soundProperties.get(this);
     properties.offset = value;
+  }
+  get playbackRate() {
+    return soundProperties.get(this).playbackRate;
+  }
+  set playbackRate(value) {
+    const properties = soundProperties.get(this);
+    properties.playbackRate = value;
+    this.forEachPitchParam("playbackRate", (param) => {
+      param.value = value;
+    });
+    if (properties.audioElement)
+      properties.audioElement.playbackRate = value;
+  }
+  get detune() {
+    return soundProperties.get(this).detune;
+  }
+  set detune(value) {
+    const properties = soundProperties.get(this);
+    properties.detune = value;
+    this.forEachPitchParam("detune", (param) => {
+      param.value = value;
+    });
+  }
+  get frequency() {
+    return soundProperties.get(this).frequency;
+  }
+  set frequency(value) {
+    const properties = soundProperties.get(this);
+    properties.frequency = value;
+    if (properties.waveOptions)
+      properties.waveOptions.frequency = value;
+    this.forEachPitchParam("frequency", (param) => {
+      param.value = value;
+    });
+  }
+  get noise() {
+    const noise = soundProperties.get(this).noise;
+    return noise ? { ...noise } : null;
+  }
+  rampPlaybackRateTo(value, duration = 1) {
+    const properties = soundProperties.get(this);
+    properties.playbackRate = value;
+    const now = this.context.currentTime;
+    this.forEachPitchParam("playbackRate", (param) => rampParam(param, value, duration, now));
+    if (properties.audioElement)
+      properties.audioElement.playbackRate = value;
+  }
+  rampDetuneTo(value, duration = 1) {
+    soundProperties.get(this).detune = value;
+    const now = this.context.currentTime;
+    this.forEachPitchParam("detune", (param) => rampParam(param, value, duration, now));
+  }
+  rampFrequencyTo(value, duration = 1) {
+    const properties = soundProperties.get(this);
+    properties.frequency = value;
+    if (properties.waveOptions)
+      properties.waveOptions.frequency = value;
+    const now = this.context.currentTime;
+    this.forEachPitchParam("frequency", (param) => rampParam(param, value, duration, now));
+  }
+  forEachPitchParam(name, fn) {
+    soundProperties.get(this).voices.forEach((voice) => {
+      const param = voice.source[name];
+      if (param && typeof param.setValueAtTime === "function")
+        fn(param);
+    });
   }
   get gainNode() {
     return soundProperties.get(this).gainNode;
@@ -1143,45 +1304,69 @@ class Group {
       throw new Error("No audio context provided to Group");
     }
     const gainNode = context.createGain();
-    gainNode.connect(context.destination);
     const properties = {
       context,
       gainNode,
       sounds: [],
+      groups: [],
+      parent: null,
       volume: 1,
       muted: false,
       previousVolume: 1,
       effects: [],
       taps: new Set,
+      output: context.destination,
       events: new Events_default,
       endedListeners: new Map
     };
     groupProperties.set(this, properties);
+    this.rebuildOutputChain();
   }
   async play() {
-    const promises = this.sounds.map(async (sound) => {
-      if (!sound.isPlaying) {
-        try {
-          await sound.play({ fromGroup: true });
-        } catch (error) {
-          console.error("Error playing sound:", error);
+    const properties = groupProperties.get(this);
+    const promises = [
+      ...this.sounds.map(async (sound) => {
+        if (!sound.isPlaying) {
+          try {
+            await sound.play({ fromGroup: true });
+          } catch (error) {
+            console.error("Error playing sound:", error);
+          }
         }
-      }
-    });
+      }),
+      ...properties.groups.map(async (group) => {
+        if (!group.isPlaying) {
+          try {
+            await group.play();
+          } catch (error) {
+            console.error("Error playing group:", error);
+          }
+        }
+      })
+    ];
     await Promise.all(promises);
     this.events.trigger("play", this);
   }
   async stop(options = {}) {
     this.events.trigger("stop", this);
-    const promises = this.sounds.map(async (sound) => {
-      if (sound.isPlaying) {
-        await sound.stop(options);
-      }
-    });
+    const properties = groupProperties.get(this);
+    const promises = [
+      ...this.sounds.map(async (sound) => {
+        if (sound.isPlaying) {
+          await sound.stop(options);
+        }
+      }),
+      ...properties.groups.map(async (group) => {
+        if (group.isPlaying) {
+          await group.stop(options);
+        }
+      })
+    ];
     await Promise.all(promises);
   }
   get isPlaying() {
-    return this.sounds.some((sound) => sound.isPlaying);
+    const properties = groupProperties.get(this);
+    return this.sounds.some((sound) => sound.isPlaying) || properties.groups.some((group) => group.isPlaying);
   }
   handleSoundEnded() {
     if (this.isPlaying)
@@ -1235,9 +1420,64 @@ class Group {
     sound.output = sound.context.destination;
     this.unwatchSound(sound);
     this.sounds.splice(index, 1);
-    if (this.sounds.length === 0) {
-      this.outputNode.disconnect(this.context.destination);
+  }
+  addGroups(groups) {
+    if (!Array.isArray(groups)) {
+      console.error("Not an array of groups");
+      return;
     }
+    const properties = groupProperties.get(this);
+    groups.forEach((group) => {
+      if (!(group instanceof Group)) {
+        console.error("The group is not an instance of Group class:", group);
+        return;
+      }
+      if (group === this) {
+        console.error("Cannot add a group to itself");
+        return;
+      }
+      if (group.context !== this.context) {
+        console.error("Cannot add group: mismatched audio contexts", group);
+        return;
+      }
+      if (this.feedsInto(group)) {
+        console.error("Cannot add group: that would create a cycle");
+        return;
+      }
+      if (properties.groups.includes(group)) {
+        console.warn("The group is already nested here");
+        return;
+      }
+      const previous = groupProperties.get(group).parent;
+      if (previous && previous !== this)
+        previous.removeGroup(group);
+      groupProperties.get(group).parent = this;
+      group.output = this;
+      properties.groups.push(group);
+      this.watchSound(group);
+    });
+  }
+  removeGroup(group) {
+    const properties = groupProperties.get(this);
+    const index = properties.groups.indexOf(group);
+    if (index === -1) {
+      console.warn("The group is not nested here");
+      return;
+    }
+    const child = groupProperties.get(group);
+    child.parent = null;
+    group.output = group.context.destination;
+    this.unwatchSound(group);
+    properties.groups.splice(index, 1);
+  }
+  feedsInto(group) {
+    let node = this;
+    while (node) {
+      if (node === group)
+        return true;
+      node = groupProperties.get(node).parent;
+    }
+    return false;
   }
   get effects() {
     return [...groupProperties.get(this).effects];
@@ -1279,7 +1519,7 @@ class Group {
   }
   rebuildOutputChain() {
     const properties = groupProperties.get(this);
-    return rebuildChain(properties.gainNode, properties.effects, [properties.context.destination, ...properties.taps]);
+    return rebuildChain(properties.gainNode, properties.effects, [properties.output, ...properties.taps]);
   }
   get outputNode() {
     const properties = groupProperties.get(this);
@@ -1332,6 +1572,20 @@ class Group {
   get sounds() {
     return groupProperties.get(this).sounds;
   }
+  get groups() {
+    return [...groupProperties.get(this).groups];
+  }
+  get output() {
+    return groupProperties.get(this).output;
+  }
+  set output(node) {
+    const properties = groupProperties.get(this);
+    const destination = node instanceof Group ? node.gainNode : node;
+    if (properties.output === destination)
+      return;
+    properties.output = destination;
+    this.rebuildOutputChain();
+  }
   get volume() {
     return groupProperties.get(this).gainNode.gain.value;
   }
@@ -1369,6 +1623,30 @@ class Effect {
   route(head, tail) {
     this.input.connect(head);
     tail.connect(this.wetGain);
+  }
+  audioParams() {
+    return {};
+  }
+  prepareRamp(name, value) {
+    if (name === "mix")
+      return Math.min(1, Math.max(0, value));
+    return value;
+  }
+  rampTo(name, value, seconds = 1) {
+    const target = this.prepareRamp(name, value);
+    const now = this.context.currentTime;
+    if (name === "mix") {
+      rampParam(this.wetGain.gain, target, seconds, now);
+      rampParam(this.dryGain.gain, 1 - target, seconds, now);
+      return this;
+    }
+    const param = this.audioParams()[name];
+    if (!param) {
+      console.warn(`Cannot ramp '${name}' on this effect`);
+      return this;
+    }
+    rampParam(param, target, seconds, now);
+    return this;
   }
   get mix() {
     return this.wetGain.gain.value;
@@ -1431,6 +1709,19 @@ class Filter extends Effect_default {
   set q(value) {
     this.filter.Q.value = value;
   }
+  get gain() {
+    return this.filter.gain.value;
+  }
+  set gain(value) {
+    this.filter.gain.value = value;
+  }
+  audioParams() {
+    return {
+      frequency: this.filter.frequency,
+      q: this.filter.Q,
+      gain: this.filter.gain
+    };
+  }
 }
 
 class LowPassFilter extends Filter {
@@ -1470,6 +1761,17 @@ class Delay extends Effect_default {
   }
   set feedback(value) {
     this.feedbackGain.gain.value = Math.min(Math.max(value, 0), 0.95);
+  }
+  audioParams() {
+    return {
+      time: this.delay.delayTime,
+      feedback: this.feedbackGain.gain
+    };
+  }
+  prepareRamp(name, value) {
+    if (name === "feedback")
+      return Math.min(Math.max(value, 0), 0.95);
+    return super.prepareRamp(name, value);
   }
 }
 var Delay_default = Delay;
@@ -1548,6 +1850,15 @@ class Compressor extends Effect_default {
   set release(value) {
     this.compressor.release.value = value;
   }
+  audioParams() {
+    return {
+      threshold: this.compressor.threshold,
+      knee: this.compressor.knee,
+      ratio: this.compressor.ratio,
+      attack: this.compressor.attack,
+      release: this.compressor.release
+    };
+  }
 }
 var Compressor_default = Compressor;
 
@@ -1564,6 +1875,14 @@ class StereoPanner extends Effect_default {
   }
   set pan(value) {
     this.panner.pan.value = Math.min(Math.max(value, -1), 1);
+  }
+  audioParams() {
+    return { pan: this.panner.pan };
+  }
+  prepareRamp(name, value) {
+    if (name === "pan")
+      return Math.min(Math.max(value, -1), 1);
+    return super.prepareRamp(name, value);
   }
 }
 var StereoPanner_default = StereoPanner;
@@ -1598,6 +1917,24 @@ class Tremolo extends Effect_default {
     const depth = Math.min(Math.max(value, 0), 0.5);
     this.depthGain.gain.value = depth;
     this.tremoloGain.gain.value = 1 - depth;
+  }
+  audioParams() {
+    return { speed: this.lfo.frequency };
+  }
+  prepareRamp(name, value) {
+    if (name === "depth")
+      return Math.min(Math.max(value, 0), 0.5);
+    return super.prepareRamp(name, value);
+  }
+  rampTo(name, value, seconds = 1) {
+    if (name === "depth") {
+      const depth = this.prepareRamp("depth", value);
+      const now = this.context.currentTime;
+      rampParam(this.depthGain.gain, depth, seconds, now);
+      rampParam(this.tremoloGain.gain, 1 - depth, seconds, now);
+      return this;
+    }
+    return super.rampTo(name, value, seconds);
   }
   dispose() {
     this.lfo.stop();

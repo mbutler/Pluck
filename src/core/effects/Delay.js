@@ -44,6 +44,18 @@ class Delay extends Effect {
   set feedback(value) {
     this.feedbackGain.gain.value = Math.min(Math.max(value, 0), 0.95)
   }
+
+  audioParams() {
+    return {
+      time: this.delay.delayTime,
+      feedback: this.feedbackGain.gain
+    }
+  }
+
+  prepareRamp(name, value) {
+    if (name === 'feedback') return Math.min(Math.max(value, 0), 0.95)
+    return super.prepareRamp(name, value)
+  }
 }
 
 export default Delay

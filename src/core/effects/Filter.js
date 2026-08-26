@@ -41,6 +41,22 @@ class Filter extends Effect {
   set q(value) {
     this.filter.Q.value = value
   }
+
+  get gain() {
+    return this.filter.gain.value
+  }
+
+  set gain(value) {
+    this.filter.gain.value = value
+  }
+
+  audioParams() {
+    return {
+      frequency: this.filter.frequency,
+      q: this.filter.Q,
+      gain: this.filter.gain
+    }
+  }
 }
 
 class LowPassFilter extends Filter {

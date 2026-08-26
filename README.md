@@ -135,11 +135,15 @@ sound is loaded before continuing.
 | `file` | — | URL to fetch and decode |
 | `stream` | — | URL to stream from an `<audio>` element instead of decoding |
 | `wave` | — | `{ type, frequency }` for an oscillator; type defaults to `'sine'`, frequency to `440` |
+| `noise` | — | `true`, `'white'`/`'pink'`/`'brown'`, or `{ type, duration }` for a generated looping noise buffer |
 | `input` | — | `true` to open the microphone, or an existing `MediaStream` to reuse |
 | `audioBuffer` | — | an already-decoded `AudioBuffer` |
+| `playbackRate` | `1` | buffer/stream speed; `2` is an octave up |
+| `detune` | `0` | cents, applied to buffers and oscillators |
+| `frequency` | `440` | oscillator frequency in Hz; ignored by buffers |
 | `context` | a new one | the `AudioContext` to use |
 | `volume` | `1` | `0`–`1`; throws outside that range |
-| `loop` | `false` | loop the buffer |
+| `loop` | `false` | loop the buffer; defaults to `true` for noise |
 | `attack` | `0.04` | fade-in seconds, applied per voice |
 | `release` | `0.04` | fade-out seconds used by `applyRelease` |
 | `offset` | `0` | seconds into the buffer to start from |
@@ -148,16 +152,20 @@ sound is loaded before continuing.
 | `cache` | `true` | share the decoded buffer through the buffer cache |
 | `fileName` | from `file` | a label, when you supply the buffer yourself |
 
-With no source at all, a Sound defaults to a 440 Hz sine.
+With no source at all, a Sound defaults to a 440 Hz sine. `frequency` on its
+own is enough to pick the pitch of that sine.
 
 ### Methods
 
 | Method | Notes |
 | --- | --- |
-| `play({ when, fromGroup })` | `when` is an absolute time on the context clock; `0` or the past means now. `fromGroup` is set by `Group`. Scheduling yourself reads `sound.play({ when: time })` |
+| `play({ when, fromGroup, playbackRate, detune, frequency })` | `when` is an absolute time on the context clock; `0` or the past means now. `fromGroup` is set by `Group`. `playbackRate`, `detune` and `frequency` override the Sound's values for that voice only |
 | `stop({ fade })` | Cuts every voice, releases the microphone, fires `stop` then `ended`. With `fade` in seconds, ramps to silence on the audio clock first. Returns a promise that resolves once stopped |
 | `clone()` | A separate Sound sharing the decoded buffer and the context |
 | `fadeVolumeTo(value, duration)` | Ramps the sound's gain |
+| `rampPlaybackRateTo(value, duration)` | Ramps every sounding buffer; stores the target so a new voice is already there |
+| `rampDetuneTo(value, duration)` | Ramps detune in cents |
+| `rampFrequencyTo(value, duration)` | Glides every sounding oscillator without rebuilding it |
 | `applyAttack(startTime)` | Manual envelope on the sound's gain; per-voice attack is automatic |
 | `applyRelease(callback, startTime)` | Ramps to silence, then calls back |
 | `addEffect(effect, index)` | Appends, or inserts at `index`. Returns the effect |
@@ -167,17 +175,59 @@ With no source at all, a Sound defaults to a 440 Hz sine.
 ### Properties
 
 `source`, `voices`, `outputNode`, `effects`, `isPlaying`, `isStreaming`,
-`streamUrl` and `audioElement` are read-only; `volume`, `loop`, `attack`,
-`release`, `offset`, `polyphony`, `output`, `clearBuffer` and `audioBuffer` are
-settable. `source` is `null` until something is playing, then reads as the most
-recent voice's source — or, for a streamed sound, the media element node, which
-persists.
+`streamUrl`, `audioElement` and `noise` are read-only; `volume`, `loop`, `attack`,
+`release`, `offset`, `polyphony`, `output`, `clearBuffer`, `audioBuffer`,
+`playbackRate`, `detune` and `frequency` are settable. Setting `playbackRate`,
+`detune` or `frequency` writes through to every voice currently sounding, so a
+drone can be retuned without being torn down. `source` is `null` until something
+is playing, then reads as the most recent voice's source — or, for a streamed
+sound, the media element node, which persists.
 
-`clone()` picks one source in priority order — stream URL, then decoded buffer,
-then file, then wave, then microphone stream — and carries every playback
-setting across. It shares the buffer rather than copying it, and reuses a
-microphone stream rather than prompting again. A cloned stream gets its own
-element and plays independently.
+`clone()` picks one source in priority order — stream URL, then decoded buffer
+(including noise), then file, then wave, then microphone stream — and carries
+every playback setting across. It shares the buffer rather than copying it, and
+reuses a microphone stream rather than prompting again. A cloned stream gets
+its own element and plays independently.
+
+### Pitch
+
+One sample is no longer one pitch. `playbackRate` and `detune` are copied onto
+each buffer source as it is built, and `play({ playbackRate, detune })` can
+override them per voice, so a handful of short one-shots can cover a scale:
+
+```js
+const pluck = new Sound({ file: 'pluck.wav', polyphony: 8 })
+await pluck.initialized
+
+pluck.play({ playbackRate: 1 })
+pluck.play({ playbackRate: 5/4, when: time })   // a major third up
+pluck.play({ detune: 700, when: time })         // or the same interval in cents
+```
+
+Oscillators use `frequency` the same way. Setting it on a sounding drone
+retunes the live oscillator; `rampFrequencyTo(hz, seconds)` glides:
+
+```js
+const drone = new Sound({ wave: { type: 'sawtooth', frequency: 110 }, loop: true })
+await drone.play()
+drone.rampFrequencyTo(165, 4)
+```
+
+### Noise
+
+Wind and rain beds want filtered noise, not a recording. `noise` generates a
+short looping buffer at init, so the asset count stays at zero:
+
+```js
+const wind = new Sound({ noise: 'pink' })
+wind.addEffect(new LowPassFilter(context, { frequency: 800 }))
+await wind.play()
+```
+
+`true` or `'white'` is white noise; `'pink'` and `'brown'` fall off with
+frequency. `{ type, duration }` sets the buffer length (default one second).
+Looping defaults to on; pass `loop: false` for a burst. Clones share the
+buffer.
 
 ### Streaming long audio
 
@@ -244,6 +294,28 @@ an error to the console. Adding a sound to a group re-points the tail of its
 chain into the group, so per-sound volume and effects keep working. A grouped
 sound refuses to be played directly — play the group.
 
+Groups nest. `addGroups([pads, drums])` re-points each child's output into the
+parent, so section buses can share a master compressor. Nested groups stay
+independently playable — a section is meant to be started and stopped on its
+own. Playing or stopping the parent recurses. Cycles are refused.
+
+```js
+const master = new Group(context)
+const pads = new Group(context)
+const drums = new Group(context)
+
+pads.addSounds([drone, figure])
+drums.addSounds([kick, snare])
+master.addGroups([pads, drums])
+master.addEffect(new Compressor(context))
+
+await pads.play()   // audible, through the master bus
+```
+
+`group.output` is the same idea as `sound.output`: it defaults to the
+destination, and can be pointed at another group or node without `addGroups`.
+`removeGroup(group)` restores the child's direct routing.
+
 `mute()` / `unmute()` remember the previous volume. `fadeVolumeTo(value,
 duration)` ramps the bus. `removeSound(sound)` restores the sound's direct
 routing and clears its grouped flag.
@@ -256,8 +328,8 @@ incoming sounds fade in through their `attack`.
 await outgoing.stop({ fade: 5 })
 ```
 
-`isPlaying` is true while any member is sounding, and `ended` waits for the last
-of them.
+`isPlaying` is true while any member sound or nested group is sounding, and
+`ended` waits for the last of them.
 
 ## Timeline
 
@@ -380,9 +452,20 @@ Effects chain in the order added and take the context as their first argument.
 Every effect has a `mix` (`0`–`1`, wet/dry) and a `bypassed` flag that passes the
 signal through and restores the previous mix when cleared.
 
+`rampTo(name, value, seconds)` sweeps a parameter on the audio clock instead of
+setting it instantly. `mix` is always available; everything else is the
+effect's own automatable properties. Parameters that are not AudioParams — a
+distortion amount, a reverb time — cannot be ramped and warn instead.
+
+```js
+filter.rampTo('frequency', 400, 3)
+reverb.rampTo('mix', 0.4, 2)
+panner.rampTo('pan', -0.6, 1)
+```
+
 | Effect | Options | Defaults |
 | --- | --- | --- |
-| `Filter` | `type`, `frequency`, `q`, `gain`, `mix` | `'lowpass'`, `1000`, `1`, —, `1` |
+| `Filter` | `type`, `frequency`, `q`, `gain`, `mix` | `'lowpass'`, `1000`, `1`, `0`, `1` |
 | `LowPassFilter`, `HighPassFilter` | as `Filter`, with `type` fixed | |
 | `Delay` | `time`, `feedback`, `maxTime`, `mix` | `0.3`, `0.4`, `5`, `0.5` |
 | `Distortion` | `amount`, `oversample`, `mix` | `0.4`, `'4x'`, `1` |
@@ -413,8 +496,14 @@ class Widener extends Effect {
     this.panner.pan.value = options.pan ?? 0.5
     this.route(this.panner, this.panner)
   }
+
+  audioParams() {
+    return { pan: this.panner.pan }
+  }
 }
 ```
+
+Override `audioParams()` to expose anything `rampTo` should be able to sweep.
 
 ## The buffer cache
 
@@ -507,12 +596,19 @@ audio graph are silent, unpredictable bugs.
 
 **Source nodes are single-use.** Nothing is built until `play()`, and each play
 builds a fresh node. This is why `sound.source` is `null` before playback.
+`frequency`, `playbackRate` and `detune` are stored on the Sound and copied
+onto each new source; setting them while something is sounding writes through
+to the live nodes as well.
+
+**Pitch is per voice; volume is not.** Overlapping notes can play the same
+sample at different rates because each voice owns its source. Volume lives
+downstream, so changing it moves every voice together.
 
 ## Development
 
 ```bash
 bun install
-bun run test      # 348 tests
+bun run test      # 401 tests
 bun run build     # all three bundles
 bun run start     # rebuild the script bundle on change
 bun run document  # JSDoc into docs/
@@ -526,6 +622,7 @@ src/
     Sound.js  Voice.js  Group.js
     Timeline.js  Tempo.js  PriorityQueue.js
     BufferCache.js  Events.js  chain.js  audioContext.js
+    noise.js  ramp.js
     effects/          Effect.js and the built-in effects
 test/
   mocks/MockAudioContext.js
