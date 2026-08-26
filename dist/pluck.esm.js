@@ -8,6 +8,7 @@ class Events {
       scheduled: [],
       missed: [],
       play: [],
+      ended: [],
       effect: []
     };
   }
@@ -267,9 +268,6 @@ class Sound {
       return;
     }
     const properties = soundProperties.get(this);
-    while (properties.voices.length >= properties.polyphony) {
-      properties.voices[0].stop();
-    }
     const source = this.createSourceNode();
     if (!source || !source.start) {
       console.error("No source to play");
@@ -280,9 +278,12 @@ class Sound {
     const voice = new Voice_default(this.context, source, properties.gainNode);
     voice.onended = () => this.retireVoice(voice);
     properties.voices.push(voice);
+    while (properties.voices.length > properties.polyphony) {
+      properties.voices[0].stop();
+    }
     properties.source = source;
     this.isPlaying = true;
-    this.events.trigger("play");
+    this.events.trigger("play", this);
     voice.start(startTime, this.offset, this.attack);
   }
   retireVoice(voice) {
@@ -298,11 +299,15 @@ class Sound {
     properties.isPlaying = false;
     if (properties.clearBuffer)
       properties.audioBuffer = null;
+    this.events.trigger("ended", this);
   }
   stop() {
     const properties = soundProperties.get(this);
+    const wasPlaying = properties.isPlaying;
+    this.events.trigger("stop", this);
     properties.voices.slice().forEach((voice) => voice.stop());
     properties.voices.length = 0;
+    const endedDuringTeardown = wasPlaying && !properties.isPlaying;
     properties.isPlaying = false;
     if (properties.source && properties.mediaStream) {
       properties.source.disconnect();
@@ -315,6 +320,8 @@ class Sound {
     if (this.clearBuffer) {
       this.audioBuffer = null;
     }
+    if (wasPlaying && !endedDuringTeardown)
+      this.events.trigger("ended", this);
   }
   clone() {
     const properties = soundProperties.get(this);

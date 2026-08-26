@@ -101,6 +101,18 @@ bundle on change while working on the demos in `dist/`.
     replay restarts the sound; higher values let hits overlap, and once the
     limit is reached the oldest voice is cut to make room.
 
+- **Events.js**
+  - A small pub/sub. A Sound fires `play` when a voice starts, `stop` when
+    `stop()` is called, and `ended` when it stops sounding — whether that is a
+    natural finish, a `stop()`, or the last voice being cut. `stop` always
+    precedes `ended`.
+  - `ended` fires once per silence, not once per voice: a polyphonic sound with
+    three voices ringing announces one `ended` when the last of them finishes.
+    Replaying a monophonic sound does not fire it, because the sound never
+    stopped sounding.
+  - Listeners run with the sound already settled: `isPlaying` false, `source`
+    null, no voices, and the buffer cleared if `clearBuffer` was set.
+
 - **Voice.js**
   - One sounding instance of a Sound: its own source node and its own gain node,
     wired `source -> voice.gain -> sound.gain -> output`. The private gain node

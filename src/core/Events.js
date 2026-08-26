@@ -7,6 +7,7 @@ class Events {
       scheduled: [],
       missed: [],
       play: [],
+      ended: [],
       effect: []
     }
   }

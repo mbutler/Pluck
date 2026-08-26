@@ -263,3 +263,198 @@ describe('inside a group', () => {
     expect(hasEdge(sound.gainNode, group.gainNode)).toBe(true)
   })
 })
+
+describe('ended event', () => {
+  test('fires when the last voice finishes on its own', async () => {
+    const sound = bufferedSound()
+    const ended = []
+    sound.events.on('ended', s => ended.push(s))
+    await sound.play()
+
+    sound.source.onended()
+
+    expect(ended).toEqual([sound])
+  })
+
+  test('does not fire while other voices are still ringing', async () => {
+    const sound = bufferedSound({ polyphony: 3 })
+    let ended = 0
+    sound.events.on('ended', () => ended++)
+    await sound.play()
+    await sound.play()
+    await sound.play()
+    const voices = sound.voices
+
+    voices[0].source.onended()
+    voices[1].source.onended()
+    expect(ended).toBe(0)
+
+    voices[2].source.onended()
+    expect(ended).toBe(1)
+  })
+
+  test('fires once, not once per voice', async () => {
+    const sound = bufferedSound({ polyphony: 4 })
+    let ended = 0
+    sound.events.on('ended', () => ended++)
+    await sound.play()
+    await sound.play()
+
+    sound.stop()
+
+    expect(ended).toBe(1)
+  })
+
+  // A listener should see the sound settled, not half torn down.
+  test('the sound is fully stopped by the time it fires', async () => {
+    const sound = bufferedSound({ clearBuffer: true })
+    let state = null
+    sound.events.on('ended', s => {
+      state = { isPlaying: s.isPlaying, source: s.source, voices: s.voices.length, buffer: s.audioBuffer }
+    })
+    await sound.play()
+
+    sound.source.onended()
+
+    expect(state).toEqual({ isPlaying: false, source: null, voices: 0, buffer: null })
+  })
+
+  test('fires on an explicit stop, after the stop event', async () => {
+    const sound = bufferedSound()
+    const seen = []
+    sound.events.on('stop', () => seen.push('stop'))
+    sound.events.on('ended', () => seen.push('ended'))
+    await sound.play()
+
+    sound.stop()
+
+    expect(seen).toEqual(['stop', 'ended'])
+  })
+
+  // Voiced sounds fire 'ended' from voice teardown and live inputs fire it from
+  // stop() itself; the order relative to 'stop' has to match either way.
+  test('the same order holds for a microphone sound', async () => {
+    const sound = new Sound({ context, input: true })
+    await sound.initialized
+    const seen = []
+    sound.events.on('stop', () => seen.push('stop'))
+    sound.events.on('ended', () => seen.push('ended'))
+    await sound.play()
+
+    sound.stop()
+
+    expect(seen).toEqual(['stop', 'ended'])
+  })
+
+  test('stop fires even when nothing was playing, but ended does not', () => {
+    const sound = bufferedSound()
+    const seen = []
+    sound.events.on('stop', () => seen.push('stop'))
+    sound.events.on('ended', () => seen.push('ended'))
+
+    sound.stop()
+
+    expect(seen).toEqual(['stop'])
+  })
+
+  test('stopping a sound that was never playing does not fire ended', () => {
+    const sound = bufferedSound()
+    let ended = 0
+    sound.events.on('ended', () => ended++)
+
+    sound.stop()
+
+    expect(ended).toBe(0)
+  })
+
+  // A live input has no voices, so nothing retires to announce the end.
+  test('fires for a microphone sound on stop', async () => {
+    const sound = new Sound({ context, input: true })
+    await sound.initialized
+    let ended = 0
+    sound.events.on('ended', () => ended++)
+    await sound.play()
+
+    sound.stop()
+
+    expect(ended).toBe(1)
+  })
+
+  // Replaying a monophonic sound steals the old voice, but the sound never
+  // stopped sounding, so announcing an end between the two would be wrong.
+  test('a monophonic replay does not fire ended', async () => {
+    const sound = bufferedSound({ polyphony: 1 })
+    const seen = []
+    sound.events.on('play', () => seen.push('play'))
+    sound.events.on('ended', () => seen.push('ended'))
+
+    await sound.play()
+    await sound.play()
+    await sound.play()
+
+    expect(seen).toEqual(['play', 'play', 'play'])
+    expect(sound.isPlaying).toBe(true)
+  })
+
+  test('voice stealing at a higher polyphony does not fire ended either', async () => {
+    const sound = bufferedSound({ polyphony: 2 })
+    let ended = 0
+    sound.events.on('ended', () => ended++)
+
+    await sound.play()
+    await sound.play()
+    await sound.play()   // steals the oldest
+
+    expect(ended).toBe(0)
+    expect(sound.voices.length).toBe(2)
+  })
+
+  test('fires again on a later playthrough', async () => {
+    const sound = bufferedSound()
+    let ended = 0
+    sound.events.on('ended', () => ended++)
+
+    await sound.play()
+    sound.stop()
+    await sound.play()
+    sound.stop()
+
+    expect(ended).toBe(2)
+  })
+
+  test('the play event carries the sound', async () => {
+    const sound = bufferedSound()
+    const played = []
+    sound.events.on('play', s => played.push(s))
+    await sound.play()
+
+    expect(played).toEqual([sound])
+  })
+
+  test('a listener can be removed', async () => {
+    const sound = bufferedSound()
+    let ended = 0
+    const listener = () => ended++
+    sound.events.on('ended', listener)
+    sound.events.off('ended', listener)
+
+    await sound.play()
+    sound.stop()
+
+    expect(ended).toBe(0)
+  })
+
+  // The motivating use: chaining one sound off the end of another.
+  test('supports chaining a follow-up sound', async () => {
+    const first = bufferedSound()
+    const second = bufferedSound()
+    await second.initialized
+    first.events.on('ended', () => second.play())
+
+    await first.play()
+    first.source.onended()
+    await Promise.resolve()
+
+    expect(second.isPlaying).toBe(true)
+  })
+})

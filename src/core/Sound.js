@@ -170,11 +170,6 @@ class Sound {
     // group, so the routing survives.
     const properties = soundProperties.get(this)
 
-    // At the polyphony limit the oldest voice makes room for the new one.
-    while (properties.voices.length >= properties.polyphony) {
-      properties.voices[0].stop()
-    }
-
     const source = this.createSourceNode()
     if (!source || !source.start) {
       console.error('No source to play')
@@ -185,11 +180,18 @@ class Sound {
     const startTime = when > this.context.currentTime ? when : this.context.currentTime
     const voice = new Voice(this.context, source, properties.gainNode)
     voice.onended = () => this.retireVoice(voice)
-
     properties.voices.push(voice)
+
+    // Trimming to the limit after adding, rather than before, keeps at least
+    // one voice in the list throughout. Stealing first would empty it on a
+    // monophonic replay and announce an 'ended' the sound never had.
+    while (properties.voices.length > properties.polyphony) {
+      properties.voices[0].stop()
+    }
+
     properties.source = source
     this.isPlaying = true
-    this.events.trigger('play')
+    this.events.trigger('play', this)
 
     voice.start(startTime, this.offset, this.attack)
   }
@@ -209,14 +211,26 @@ class Sound {
     properties.source = null
     properties.isPlaying = false
     if (properties.clearBuffer) properties.audioBuffer = null
+
+    // Fired last, so a listener sees the sound fully settled rather than
+    // half torn down.
+    this.events.trigger('ended', this)
   }
 
   stop() {
     const properties = soundProperties.get(this)
+    const wasPlaying = properties.isPlaying
 
-    // slice() because stopping a voice retires it out of the same array.
+    // Announced before the teardown, so 'stop' always precedes the 'ended' that
+    // the teardown triggers. Tearing down first would put them in one order for
+    // a sound with voices and the opposite order for a live input.
+    this.events.trigger('stop', this)
+
+    // slice() because stopping a voice retires it out of the same array. The
+    // last one to retire fires 'ended' on the way out.
     properties.voices.slice().forEach(voice => voice.stop())
     properties.voices.length = 0
+    const endedDuringTeardown = wasPlaying && !properties.isPlaying
     properties.isPlaying = false
 
     // A live input has a source node but no voice; unhook it directly.
@@ -232,6 +246,9 @@ class Sound {
     if (this.clearBuffer) {
       this.audioBuffer = null
     }
+
+    // A live input has no voices, so nothing retired to announce the end.
+    if (wasPlaying && !endedDuringTeardown) this.events.trigger('ended', this)
   }
 
   clone() {
