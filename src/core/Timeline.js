@@ -92,7 +92,7 @@ class Timeline {
   }
 
   rescheduleSound(sound, newTime) {
-    this.soundQueue.remove(sound)
+    this.soundQueue.remove(entry => entry.sound === sound)
     this.scheduleSound(sound, newTime)
   }
 

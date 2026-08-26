@@ -72,15 +72,25 @@ class PriorityQueue {
     this.queue[index] = node
   }
 
-  remove(item) {
-    const index = this.queue.findIndex(node => node.item === item)
+  remove(match) {
+    const matches = typeof match === 'function'
+      ? node => match(node.item)
+      : node => node.item === match
+
+    const index = this.queue.findIndex(matches)
     if (index === -1) return false
 
     const last = this.queue.pop()
     if (index < this.queue.length) {
       this.queue[index] = last
-      this.bubbleUp(index)
-      this.bubbleDown(index)
+      // At most one direction applies: sift up if the replacement outranks
+      // its parent, otherwise sift down.
+      const parentIndex = Math.floor((index - 1) / 2)
+      if (index > 0 && last.priority < this.queue[parentIndex].priority) {
+        this.bubbleUp(index)
+      } else {
+        this.bubbleDown(index)
+      }
     }
     return true
   }

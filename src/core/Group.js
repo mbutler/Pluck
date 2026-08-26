@@ -4,9 +4,8 @@ var groupProperties = new WeakMap;
 
 class Group {
   constructor(context) {
-    if (!context instanceof AudioContext) {
-      console.error('No audio context provided to Group')
-      return
+    if (!(context instanceof (window.AudioContext || window.webkitAudioContext))) {
+      throw new Error('No audio context provided to Group')
     }
 
     const gainNode = context.createGain()
@@ -63,10 +62,12 @@ class Group {
         return
       }
 
+      // removeSound() unhooks the group once it empties; re-hook it here.
+      this.gainNode.connect(this.context.destination)
+
       sound.isGrouped = true
-      sound.disconnect(sound.gainNode)
+      sound.output = this.gainNode
       this.sounds.push(sound)
-      sound.connect(this.gainNode)
     })
   }
   
@@ -76,7 +77,8 @@ class Group {
       console.warn("The sound is not in the group")
       return
     }
-    sound.disconnect(this.gainNode)
+    sound.isGrouped = false
+    sound.output = sound.context.destination
     this.sounds.splice(index, 1)
     if (this.sounds.length === 0) {
       this.gainNode.disconnect(this.context.destination)
@@ -85,9 +87,8 @@ class Group {
 
   fadeVolumeTo(value, duration = 1) {
     const currentTime = this.context.currentTime
-    gainNode.gain.setValueAtTime(gainNode.gain.value, currentTime)
-    gainNode.gain.linearRampToValueAtTime(value, currentTime + duration)
-    console.log(`Volume set to ${value} over ${duration} seconds`)
+    this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, currentTime)
+    this.gainNode.gain.linearRampToValueAtTime(value, currentTime + duration)
   }
 
   mute() {

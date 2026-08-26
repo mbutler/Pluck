@@ -2,12 +2,15 @@ import Events from './Events.js'
 
 const soundProperties = new WeakMap()
 
+const isMediaStream = value => !!value && typeof value.getTracks === 'function'
+
 class Sound {
   constructor(options = {}) {
     const audioContext = options.context || new (window.AudioContext || window.webkitAudioContext)()
     const gainNode = audioContext.createGain()
+    gainNode.gain.value = options.volume ?? 1
     const properties = {
-      fileName: options.file || null,
+      fileName: options.file || options.fileName || null,
       context: audioContext,
       source: null,
       audioBuffer: options.audioBuffer || null,
@@ -17,13 +20,13 @@ class Sound {
       release: options.release || 0.04,
       offset: options.offset || 0,
       gainNode,
-      mediaStream: options.input || null,
+      mediaStream: isMediaStream(options.input) ? options.input : null,
       clearBuffer: options.clearBuffer || false,
       isPlaying: false,
       isGrouped: false,
       events: new Events(),
-      animationFrameId: null,
-      intervalIDs: {}
+      waveOptions: options.wave || null,
+      output: audioContext.destination
     }
     soundProperties.set(this, properties)
 
@@ -42,10 +45,12 @@ class Sound {
   async initSource(options) {
     if (options.file) {
       await this.loadFromFile(options.file)
+    } else if (options.audioBuffer) {
+      this.createSourceFromBuffer()
     } else if (options.wave) {
       this.initFromWave(options.wave)
     } else if (options.input) {
-      await this.initFromInput()
+      await this.initFromInput(isMediaStream(options.input) ? options.input : null)
     } else {
       this.initFromWave({ type: 'sine', frequency: 440 })
     }
@@ -67,11 +72,14 @@ class Sound {
       console.error('No audio buffer to create source from')
       return
     }
-    this.source = this.context.createBufferSource()
-    this.source.buffer = this.audioBuffer
-    this.source.loop = this.loop
+    const source = this.context.createBufferSource()
+    source.buffer = this.audioBuffer
+    source.loop = this.loop
+    this.source = source
     this.connectGain()
-    this.source.onended = () => {
+    source.onended = () => {
+      // A later play() may already have swapped in a fresh source.
+      if (this.source !== source) return
       this.isPlaying = false
       this.source = null
       if (this.clearBuffer) this.audioBuffer = null
@@ -79,19 +87,32 @@ class Sound {
   }
 
   initFromWave(waveOptions) {
-    this.source = this.context.createOscillator()
-    this.source.type = waveOptions.type || 'sine'
-    this.source.frequency.value = waveOptions.frequency || 440
+    const properties = soundProperties.get(this)
+    properties.waveOptions = waveOptions
+    const source = this.context.createOscillator()
+    source.type = waveOptions.type || 'sine'
+    source.frequency.value = waveOptions.frequency || 440
+    this.source = source
     this.connectGain()
-    this.source.onended = () => {
+    source.onended = () => {
+      if (this.source !== source) return
       this.isPlaying = false
       this.source = null
     }
   }
 
-  async initFromInput() {
+  // Source nodes are single-use, so every play() needs a fresh one.
+  createSource() {
+    if (this.audioBuffer) {
+      this.createSourceFromBuffer()
+    } else if (this.waveOptions) {
+      this.initFromWave(this.waveOptions)
+    }
+  }
+
+  async initFromInput(existingStream = null) {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = existingStream || await navigator.mediaDevices.getUserMedia({ audio: true })
       this.mediaStream = stream
       this.source = this.context.createMediaStreamSource(stream)
       this.connectGain()
@@ -103,7 +124,7 @@ class Sound {
   connectGain() {
     if (this.source) {
       this.source.connect(this.gainNode)
-      this.gainNode.connect(this.context.destination)
+      this.gainNode.connect(this.output)
     } else {
       console.error('No source to connect to gain node')
     }
@@ -111,40 +132,46 @@ class Sound {
 
   async play(fromGroup = false) {
     if (this.isGrouped && !fromGroup) {
-        console.warn(`Cannot play the sound ${this.fileName} directly. It is in a group.`)
-        return
+      console.warn(`Cannot play the sound ${this.fileName} directly. It is in a group.`)
+      return
     }
 
-    this.isPlaying = true
     await this.initialized
     if (this.context.state === 'suspended') {
-        await this.context.resume()
+      await this.context.resume()
     }
 
-    if (!this.audioBuffer && !this.source) {
-        console.error('No audio buffer or source available to play')
-        return
-    }
-    
-    if (!this.isGrouped && this.audioBuffer && !fromGroup) {
-        this.source = null
-        this.createSourceFromBuffer()
-    }
-        
-
+    // A live input is already streaming; there is nothing to start.
     if (this.mediaStream) {
-        return
+      this.isPlaying = true
+      return
     }
+
+    if (!this.audioBuffer && !this.waveOptions) {
+      console.error('No audio buffer or source available to play')
+      return
+    }
+
+    // Buffer and oscillator nodes cannot be restarted, so discard whatever the
+    // last play() left behind and build a new one. Grouped sounds included:
+    // the fresh source feeds this.gainNode, which is already wired to the
+    // group, so the routing survives.
+    if (this.source) {
+      this.source.disconnect()
+      this.source = null
+    }
+    this.createSource()
 
     if (this.source && this.source.start) {
-        this.applyAttack()
-        this.events.trigger('play')
-        this.source.start(this.context.currentTime, this.offset)
+      this.isPlaying = true
+      this.applyAttack()
+      this.events.trigger('play')
+      this.source.start(this.context.currentTime, this.offset)
     } else {
-        console.error('No source to play')
-        this.isPlaying = false
+      console.error('No source to play')
+      this.isPlaying = false
     }
-}
+  }
 
   stop() {
     this.isPlaying = false;
@@ -162,25 +189,35 @@ class Sound {
     if (this.clearBuffer) {
         this.audioBuffer = null;
     }
-    if (this.animationFrameId) {
-        cancelAnimationFrame(this.animationFrameId);
-    }
   }
 
   clone() {
     const properties = soundProperties.get(this)
-    return new Sound({
+    const options = {
       context: properties.context,
-      audioBuffer: properties.audioBuffer,
+      fileName: properties.fileName,
       volume: properties.volume,
       loop: properties.loop,
       attack: properties.attack,
       release: properties.release,
-      input: this.mediaStream || null,
-      clearBuffer: properties.clearBuffer,
-      file: this.source && this.source.buffer ? this.source.buffer : undefined,
-      wave: this.source && this.source.frequency ? { type: this.source.type, frequency: this.source.frequency.value } : undefined,
-    })
+      offset: properties.offset,
+      clearBuffer: properties.clearBuffer
+    }
+
+    if (properties.audioBuffer) {
+      // Share the decoded buffer rather than fetching and decoding again.
+      options.audioBuffer = properties.audioBuffer
+    } else if (properties.fileName) {
+      // Nothing decoded yet (still loading, or cleared): let the clone load it.
+      options.file = properties.fileName
+    } else if (properties.waveOptions) {
+      options.wave = { ...properties.waveOptions }
+    } else if (properties.mediaStream) {
+      // Reuse the live stream; re-prompting for microphone access would be wrong.
+      options.input = properties.mediaStream
+    }
+
+    return new Sound(options)
   }
 
   applyAttack() {
@@ -200,7 +237,6 @@ class Sound {
       setTimeout(callback, this.release * 1000)
     }
   }
-  
 
   connect(node) {
     const properties = soundProperties.get(this)
@@ -301,6 +337,24 @@ class Sound {
     return soundProperties.get(this).gainNode
   }
 
+  get waveOptions() {
+    return soundProperties.get(this).waveOptions
+  }
+
+  get output() {
+    return soundProperties.get(this).output
+  }
+
+  // Re-points this sound's gain node at a new destination (a group's gain node,
+  // or the context destination again). Per-sound volume and envelope still apply.
+  set output(node) {
+    const properties = soundProperties.get(this)
+    if (properties.output === node) return
+    properties.gainNode.disconnect()
+    properties.output = node
+    properties.gainNode.connect(node)
+  }
+
   get mediaStream() {
     return soundProperties.get(this).mediaStream
   }
@@ -346,238 +400,12 @@ class Sound {
     properties.events = value
   }
 
-  async loop() {
-    if (!this.isPlaying) return;
-    
-    this.animationFrameId = requestAnimationFrame(() => this.loop());
-  }
-
-  scheduleSound(sound, time) {
-    if (time < this.currentTime) {
-        console.warn('Cannot schedule sound in the past');
-        return;
-    }
-    if (this.soundQueue.find(node => node.item.sound === sound)) {
-        console.warn('Sound is already scheduled');
-        return;
-    }
-    this.soundQueue.enqueue({ sound, time }, time);
-    this.events.trigger('scheduled', sound, time);
-  }
-
-  startInterval(intervalInSeconds, callback) {
-    // Check for existing interval
-    if (this.intervalIDs[intervalInSeconds]) {
-        this.stopInterval(intervalInSeconds);
-    }
-    const intervalID = setInterval(() => {
-        if (!this.isPlaying) {
-            this.stopInterval(intervalInSeconds);
-            return;
-        }
-        callback();
-    }, intervalInSeconds * 1000);
-    this.intervalIDs = { ...this.intervalIDs, [intervalInSeconds]: intervalID };
-  }
-
-  async addSound(file, startTime, options = {}) {
-    const sound = new Sound({ file, ...options });
-    try {
-        await Promise.race([
-            sound.initialized,
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Sound loading timeout')), 5000)
-            )
-        ]);
-        this.scheduleSound(sound, startTime);
-    } catch (error) {
-        console.error('Failed to load sound:', error);
-        this.events.trigger('error', error);
-    }
-  }
 
   fadeVolumeTo(value, duration = 1) {
     const currentTime = this.context.currentTime
     this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, currentTime)
     this.gainNode.gain.linearRampToValueAtTime(value, currentTime + duration)
   }
-}
-
-class Group {
-    constructor(context) {
-        if (!(context instanceof AudioContext)) {
-            throw new Error('No audio context provided to Group');
-        }
-
-        const gainNode = context.createGain();
-        gainNode.connect(context.destination);
-        
-        const properties = {
-            context,
-            gainNode,
-            sounds: new Set(), // Use Set to prevent duplicates
-            volume: 1,
-            muted: false,
-            previousVolume: 1,
-            maxSounds: 100 // Add maximum limit
-        };
-        
-        groupProperties.set(this, properties);
-    }
-
-    addSounds(sounds) {
-        if (!Array.isArray(sounds)) {
-            throw new Error("Not an array of sounds");
-        }
-    
-        if (this.sounds.size + sounds.length > this.maxSounds) {
-            throw new Error(`Cannot add more sounds. Maximum limit is ${this.maxSounds}`);
-        }
-
-        sounds.forEach((sound) => {
-            if (!(sound instanceof Sound)) {
-                throw new Error("The sound is not an instance of Sound class");
-            }
-    
-            if (sound.context !== this.context) {
-                throw new Error("Cannot add sound to group: mismatched audio contexts");
-            }
-
-            if (this.sounds.has(sound)) {
-                console.warn("Sound already in group");
-                return;
-            }
-
-            sound.isGrouped = true;
-            sound.disconnect(sound.gainNode);
-            this.sounds.add(sound);
-            sound.connect(this.gainNode);
-        });
-    }
-
-    removeSound(sound) {
-        if (!this.sounds.has(sound)) {
-            console.warn("The sound is not in the group");
-            return;
-        }
-        sound.isGrouped = false; // Reset the flag
-        sound.disconnect(this.gainNode);
-        this.sounds.delete(sound);
-        if (this.sounds.size === 0) {
-            this.gainNode.disconnect(this.context.destination);
-        }
-    }
-
-    fadeVolumeTo(value, duration = 1) {
-        if (value < 0 || value > 1) {
-            throw new Error('Volume must be between 0 and 1');
-        }
-        const currentTime = this.context.currentTime;
-        this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, currentTime);
-        this.gainNode.gain.linearRampToValueAtTime(value, currentTime + duration);
-    }
-
-    destroy() {
-        this.stop();
-        this.sounds.forEach(sound => {
-            sound.isGrouped = false;
-            sound.disconnect(this.gainNode);
-        });
-        this.sounds.clear();
-        this.gainNode.disconnect();
-        this.gainNode = null;
-    }
-}
-
-class SoundManager {
-    constructor() {
-        this.context = new (window.AudioContext || window.webkitAudioContext)();
-        this.maxConcurrentSounds = 32;
-        this.activeSounds = new Set();
-    }
-
-    async playSound(file, options = {}) {
-        if (this.activeSounds.size >= this.maxConcurrentSounds) {
-            // Stop oldest sound
-            const oldestSound = Array.from(this.activeSounds)[0];
-            oldestSound.stop();
-        }
-
-        const sound = new Sound({ 
-            file, 
-            context: this.context,
-            ...options 
-        });
-        
-        this.activeSounds.add(sound);
-        sound.events.on('stop', () => {
-            this.activeSounds.delete(sound);
-        });
-
-        await sound.play();
-        return sound;
-    }
-}
-
-class SoundGroup {
-    constructor(context) {
-        this.context = context;
-        this.gainNode = context.createGain();
-        this.gainNode.connect(context.destination);
-        this.sounds = new Set();
-        this.maxSounds = 32;
-    }
-
-    async play() {
-        const startTime = this.context.currentTime;
-        const promises = Array.from(this.sounds).map(sound => 
-            sound.play(startTime)
-        );
-        
-        try {
-            await Promise.all(promises);
-        } catch (error) {
-            console.error('Error playing group:', error);
-            this.stop();
-            throw error;
-        }
-    }
-
-    stop() {
-        Array.from(this.sounds).forEach(sound => sound.stop());
-    }
-}
-
-class SoundTimeline {
-    constructor() {
-        this.context = new (window.AudioContext || window.webkitAudioContext)();
-        this.soundQueue = new PriorityQueue();
-        this.maxSoundsPerFrame = 4;
-        this.isPlaying = false;
-    }
-
-    async loop() {
-        if (!this.isPlaying) return;
-
-        const currentTime = this.context.currentTime;
-        let soundsProcessed = 0;
-
-        while (!this.soundQueue.isEmpty() && 
-               this.soundQueue.peek().priority <= currentTime &&
-               soundsProcessed < this.maxSoundsPerFrame) {
-            const node = this.soundQueue.dequeue();
-            const { sound, time } = node;
-
-            try {
-                await sound.play();
-                soundsProcessed++;
-            } catch (error) {
-                console.error('Error playing scheduled sound:', error);
-            }
-        }
-
-        requestAnimationFrame(() => this.loop());
-    }
 }
 
 export default Sound
