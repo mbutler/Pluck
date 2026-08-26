@@ -25,9 +25,9 @@ class Events {
       console.error(`Event ${event} is not supported.`);
     }
   }
-  trigger(event, sound, time) {
+  trigger(event, ...args) {
     if (this.events[event]) {
-      this.events[event].forEach((listener) => listener(sound, time));
+      this.events[event].forEach((listener) => listener(...args));
     }
   }
 }
@@ -560,9 +560,52 @@ class PriorityQueue {
 }
 var PriorityQueue_default = PriorityQueue;
 
+// src/core/Tempo.js
+var DEFAULTS = {
+  bpm: 120,
+  beatsPerBar: 4
+};
+
+class Tempo {
+  constructor(options = {}) {
+    this.beatsPerBar = options.beatsPerBar ?? DEFAULTS.beatsPerBar;
+    this.anchor = { beat: 0, time: 0, bpm: options.bpm ?? DEFAULTS.bpm };
+  }
+  get bpm() {
+    return this.anchor.bpm;
+  }
+  setBpm(value, atTime = this.anchor.time) {
+    if (!(value > 0))
+      throw new Error("bpm must be greater than 0");
+    this.anchor = { beat: this.timeToBeat(atTime), time: atTime, bpm: value };
+  }
+  reset(atTime, beat = 0) {
+    this.anchor = { beat, time: atTime, bpm: this.anchor.bpm };
+  }
+  beatToTime(beat) {
+    return this.anchor.time + (beat - this.anchor.beat) * 60 / this.anchor.bpm;
+  }
+  timeToBeat(time) {
+    return this.anchor.beat + (time - this.anchor.time) * this.anchor.bpm / 60;
+  }
+  beatsToSeconds(beats) {
+    return beats * 60 / this.anchor.bpm;
+  }
+  secondsToBeats(seconds) {
+    return seconds * this.anchor.bpm / 60;
+  }
+  barToBeat(bar, beat = 0) {
+    return bar * this.beatsPerBar + beat;
+  }
+  beatToBar(beat) {
+    return beat / this.beatsPerBar;
+  }
+}
+var Tempo_default = Tempo;
+
 // src/core/Timeline.js
 var timelineProperties = new WeakMap;
-var DEFAULTS = {
+var DEFAULTS2 = {
   lookahead: 2,
   tickInterval: 0.25,
   maxLateness: 1
@@ -574,11 +617,15 @@ class Timeline {
       context: null,
       isPlaying: false,
       soundQueue: new PriorityQueue_default,
+      beatQueue: new PriorityQueue_default,
+      repeats: [],
+      nextRepeatID: 1,
+      tempo: new Tempo_default(options),
       intervalIDs: {},
       events: new Events_default,
-      lookahead: options.lookahead ?? DEFAULTS.lookahead,
-      tickInterval: options.tickInterval ?? DEFAULTS.tickInterval,
-      maxLateness: options.maxLateness ?? DEFAULTS.maxLateness,
+      lookahead: options.lookahead ?? DEFAULTS2.lookahead,
+      tickInterval: options.tickInterval ?? DEFAULTS2.tickInterval,
+      maxLateness: options.maxLateness ?? DEFAULTS2.maxLateness,
       schedulerID: null,
       active: new Set
     };
@@ -589,6 +636,7 @@ class Timeline {
     const properties = timelineProperties.get(this);
     this.stopScheduler();
     properties.context = new (window.AudioContext || window.webkitAudioContext);
+    properties.tempo.reset(properties.context.currentTime, 0);
     properties.isPlaying = true;
     this.events.trigger("start");
     await properties.context.resume();
@@ -601,13 +649,25 @@ class Timeline {
       return;
     const now = properties.context.currentTime;
     const horizon = now + properties.lookahead;
+    const tempo = properties.tempo;
+    const due = [];
     while (!properties.soundQueue.isEmpty() && properties.soundQueue.peek().priority <= horizon) {
       const entry = properties.soundQueue.dequeue();
-      if (!entry || !entry.sound)
-        continue;
-      const { sound, time } = entry;
+      if (entry && entry.sound)
+        due.push({ sound: entry.sound, time: entry.time });
+    }
+    const horizonBeat = tempo.timeToBeat(horizon);
+    while (!properties.beatQueue.isEmpty() && properties.beatQueue.peek().priority <= horizonBeat) {
+      const entry = properties.beatQueue.dequeue();
+      if (entry && entry.sound) {
+        due.push({ sound: entry.sound, time: tempo.beatToTime(entry.beat), beat: entry.beat });
+      }
+    }
+    this.runRepeats(horizonBeat);
+    due.sort((a, b) => a.time - b.time);
+    for (const { sound, time, beat } of due) {
       if (time < now - properties.maxLateness) {
-        this.events.trigger("missed", sound, time);
+        this.events.trigger("missed", sound, time, beat);
         continue;
       }
       const when = Math.max(time, now);
@@ -616,7 +676,7 @@ class Timeline {
       Promise.resolve(sound.play(false, when)).catch((error) => console.error("Error playing scheduled sound:", error)).finally(() => {
         tracked.ready = true;
       });
-      this.events.trigger("play", sound, when);
+      this.events.trigger("play", sound, when, beat);
     }
     for (const tracked of properties.active) {
       if (tracked.ready && !tracked.sound.isPlaying)
@@ -632,12 +692,15 @@ class Timeline {
     this.stopScheduler();
     properties.active.forEach((entry) => entry.sound.stop());
     properties.active.clear();
-    while (!properties.soundQueue.isEmpty()) {
-      const entry = properties.soundQueue.dequeue();
-      if (entry && entry.sound && entry.sound.isPlaying) {
-        entry.sound.stop();
+    for (const queue of [properties.soundQueue, properties.beatQueue]) {
+      while (!queue.isEmpty()) {
+        const entry = queue.dequeue();
+        if (entry && entry.sound && entry.sound.isPlaying) {
+          entry.sound.stop();
+        }
       }
     }
+    properties.repeats.length = 0;
     if (properties.context && properties.context.state !== "closed") {
       properties.context.close();
     }
@@ -665,9 +728,50 @@ class Timeline {
       this.intervalIDs = remainingIntervalIDs;
     }
   }
+  runRepeats(horizonBeat) {
+    const properties = timelineProperties.get(this);
+    for (const repeat of properties.repeats) {
+      let fired = 0;
+      while (repeat.nextBeat <= horizonBeat && fired < 256) {
+        repeat.callback(properties.tempo.beatToTime(repeat.nextBeat), repeat.nextBeat);
+        repeat.nextBeat += repeat.interval;
+        fired++;
+      }
+    }
+  }
+  everyBeat(beats, callback, startBeat = null) {
+    if (!(beats > 0))
+      throw new Error("everyBeat needs an interval greater than 0");
+    const properties = timelineProperties.get(this);
+    const from = startBeat ?? Math.ceil(this.currentBeat / beats) * beats;
+    const id = properties.nextRepeatID++;
+    properties.repeats.push({ id, interval: beats, nextBeat: from, callback });
+    return id;
+  }
+  stopEveryBeat(id) {
+    const properties = timelineProperties.get(this);
+    const index = properties.repeats.findIndex((repeat) => repeat.id === id);
+    if (index === -1)
+      return false;
+    properties.repeats.splice(index, 1);
+    return true;
+  }
   scheduleSound(sound, time) {
     this.soundQueue.enqueue({ sound, time }, time);
     this.events.trigger("scheduled", sound, time);
+  }
+  scheduleBeat(sound, beat) {
+    const properties = timelineProperties.get(this);
+    properties.beatQueue.enqueue({ sound, beat }, beat);
+    this.events.trigger("scheduled", sound, properties.tempo.beatToTime(beat), beat);
+  }
+  scheduleBar(sound, bar, beat = 0) {
+    this.scheduleBeat(sound, this.at(bar, beat));
+  }
+  rescheduleBeat(sound, newBeat) {
+    const properties = timelineProperties.get(this);
+    properties.beatQueue.remove((entry) => entry.sound === sound);
+    this.scheduleBeat(sound, newBeat);
   }
   rescheduleSound(sound, newTime) {
     this.soundQueue.remove((entry) => entry.sound === sound);
@@ -689,6 +793,52 @@ class Timeline {
   }
   future(seconds) {
     return this.currentTime + seconds;
+  }
+  at(bar, beat = 0) {
+    return this.tempo.barToBeat(bar, beat);
+  }
+  beatToTime(beat) {
+    return this.tempo.beatToTime(beat);
+  }
+  timeToBeat(time) {
+    return this.tempo.timeToBeat(time);
+  }
+  beatsToSeconds(beats) {
+    return this.tempo.beatsToSeconds(beats);
+  }
+  secondsToBeats(seconds) {
+    return this.tempo.secondsToBeats(seconds);
+  }
+  nextBeat(count = 1) {
+    return Math.floor(this.currentBeat) + count;
+  }
+  nextBar(count = 1) {
+    return (Math.floor(this.currentBar) + count) * this.beatsPerBar;
+  }
+  get tempo() {
+    return timelineProperties.get(this).tempo;
+  }
+  get bpm() {
+    return timelineProperties.get(this).tempo.bpm;
+  }
+  set bpm(value) {
+    const properties = timelineProperties.get(this);
+    properties.tempo.setBpm(value, this.currentTime);
+  }
+  get beatsPerBar() {
+    return timelineProperties.get(this).tempo.beatsPerBar;
+  }
+  set beatsPerBar(value) {
+    timelineProperties.get(this).tempo.beatsPerBar = value;
+  }
+  get currentBeat() {
+    return this.tempo.timeToBeat(this.currentTime);
+  }
+  get currentBar() {
+    return this.tempo.beatToBar(this.currentBeat);
+  }
+  get beatQueue() {
+    return timelineProperties.get(this).beatQueue;
   }
   get context() {
     return timelineProperties.get(this).context;
@@ -880,6 +1030,7 @@ var Pluck = {
   Sound: Sound_default,
   Group: Group_default,
   Voice: Voice_default,
+  Tempo: Tempo_default,
   BufferCache,
   bufferCache: BufferCache_default
 };

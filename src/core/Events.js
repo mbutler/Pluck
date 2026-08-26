@@ -27,9 +27,9 @@ class Events {
     }
   }
 
-  trigger(event, sound, time) {
+  trigger(event, ...args) {
     if (this.events[event]) {
-      this.events[event].forEach(listener => listener(sound, time))
+      this.events[event].forEach(listener => listener(...args))
     }
   }
 }

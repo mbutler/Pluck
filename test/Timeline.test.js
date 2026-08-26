@@ -465,3 +465,305 @@ describe('stop', () => {
     expect(stopped).toBe(1)
   })
 })
+
+describe('musical time', () => {
+  test('defaults to 120bpm in 4/4', () => {
+    const timeline = primedTimeline()
+
+    expect(timeline.bpm).toBe(120)
+    expect(timeline.beatsPerBar).toBe(4)
+  })
+
+  test('takes tempo from the constructor', () => {
+    const timeline = primedTimeline({ bpm: 90, beatsPerBar: 3 })
+
+    expect(timeline.bpm).toBe(90)
+    expect(timeline.beatsPerBar).toBe(3)
+  })
+
+  test('at() maps bar and beat to a beat number', () => {
+    const timeline = primedTimeline({ beatsPerBar: 4 })
+
+    expect(timeline.at(0)).toBe(0)
+    expect(timeline.at(2)).toBe(8)
+    expect(timeline.at(2, 3)).toBe(11)
+  })
+
+  test('currentBeat and currentBar follow the audio clock', () => {
+    const timeline = primedTimeline({ bpm: 120 })
+    timeline.context.currentTime = 5     // ten beats at 120bpm
+
+    expect(timeline.currentBeat).toBe(10)
+    expect(timeline.currentBar).toBe(2.5)
+  })
+
+  test('nextBeat and nextBar are always ahead of now', () => {
+    const timeline = primedTimeline({ bpm: 120 })
+    timeline.context.currentTime = 2.25  // beat 4.5, bar 1.125
+
+    expect(timeline.nextBeat()).toBe(5)
+    expect(timeline.nextBeat(2)).toBe(6)
+    expect(timeline.nextBar()).toBe(8)
+
+    // Exactly on a boundary still resolves to the next one, never to now.
+    timeline.context.currentTime = 2     // beat 4 exactly
+    expect(timeline.nextBeat()).toBe(5)
+  })
+})
+
+describe('scheduling in beats', () => {
+  test('queues a sound at a beat', async () => {
+    const timeline = primedTimeline()
+    const sound = await soundFor(timeline)
+
+    timeline.scheduleBeat(sound, 16)
+
+    expect(timeline.beatQueue.peek().priority).toBe(16)
+    expect(timeline.soundQueue.isEmpty()).toBe(true)
+  })
+
+  test('scheduleBar converts through the time signature', async () => {
+    const timeline = primedTimeline({ beatsPerBar: 4 })
+    const sound = await soundFor(timeline)
+
+    timeline.scheduleBar(sound, 3, 2)
+
+    expect(timeline.beatQueue.peek().priority).toBe(14)
+  })
+
+  test('starts a beat-scheduled sound at the right audio time', async () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 2 })
+    const sound = await soundFor(timeline)
+
+    timeline.scheduleBeat(sound, 3)      // 1.5s at 120bpm
+    timeline.tick()
+    await settle()
+
+    expect(sound.source.startCalls[0].when).toBe(1.5)
+  })
+
+  test('reports both time and beat on the scheduled and play events', async () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 2 })
+    const sound = await soundFor(timeline)
+    const scheduled = []
+    const played = []
+    timeline.events.on('scheduled', (s, time, beat) => scheduled.push({ time, beat }))
+    timeline.events.on('play', (s, time, beat) => played.push({ time, beat }))
+
+    timeline.scheduleBeat(sound, 2)
+    timeline.tick()
+    await settle()
+
+    expect(scheduled).toEqual([{ time: 1, beat: 2 }])
+    expect(played).toEqual([{ time: 1, beat: 2 }])
+  })
+
+  test('leaves beats beyond the lookahead queued', async () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 2 })
+    const soon = await soundFor(timeline)
+    const later = await soundFor(timeline)
+
+    timeline.scheduleBeat(soon, 2)       // 1s
+    timeline.scheduleBeat(later, 64)     // 32s
+    timeline.tick()
+    await settle()
+
+    expect(soon.isPlaying).toBe(true)
+    expect(later.isPlaying).toBe(false)
+    expect(timeline.beatQueue.peek().item.sound).toBe(later)
+  })
+
+  test('rescheduleBeat moves a sound instead of duplicating it', async () => {
+    const timeline = primedTimeline()
+    const sound = await soundFor(timeline)
+    timeline.scheduleBeat(sound, 8)
+
+    timeline.rescheduleBeat(sound, 32)
+
+    const entries = []
+    while (!timeline.beatQueue.isEmpty()) entries.push(timeline.beatQueue.dequeue())
+
+    expect(entries.length).toBe(1)
+    expect(entries[0].beat).toBe(32)
+  })
+
+  test('beat and second scheduling interleave in playback order', async () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 5 })
+    const onBeat = await soundFor(timeline)
+    const onClock = await soundFor(timeline)
+    const order = []
+    timeline.events.on('play', (sound, time) => order.push(time))
+
+    timeline.scheduleBeat(onBeat, 4)       // 2s
+    timeline.scheduleSound(onClock, 1)     // 1s
+    timeline.tick()
+    await settle()
+
+    expect(order).toEqual([1, 2])
+  })
+
+  test('drops beats that are too late, like the seconds queue', async () => {
+    const timeline = primedTimeline({ bpm: 120, maxLateness: 1 })
+    const sound = await soundFor(timeline)
+    const missed = []
+    timeline.events.on('missed', (s, time, beat) => missed.push(beat))
+
+    timeline.scheduleBeat(sound, 0)
+    timeline.context.currentTime = 60
+    timeline.tick()
+    await settle()
+
+    expect(missed).toEqual([0])
+    expect(sound.isPlaying).toBe(false)
+  })
+})
+
+describe('tempo changes during playback', () => {
+  // Queued beats convert to seconds only when they come due, so a tempo change
+  // moves everything still waiting.
+  test('move sounds still in the queue', async () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 1 })
+    const sound = await soundFor(timeline)
+    timeline.scheduleBeat(sound, 8)      // 4s at 120bpm
+
+    timeline.bpm = 60                    // now 8s away
+    timeline.context.currentTime = 3.5
+    timeline.tick()
+    await settle()
+
+    expect(sound.isPlaying).toBe(false)  // no longer due at 4s
+
+    timeline.context.currentTime = 7.5
+    timeline.tick()
+    await settle()
+
+    expect(sound.source.startCalls[0].when).toBe(8)
+  })
+
+  test('do not move sounds already handed to the audio clock', async () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 5 })
+    const sound = await soundFor(timeline)
+    timeline.scheduleBeat(sound, 4)      // 2s, inside the lookahead
+    timeline.tick()
+    await settle()
+
+    expect(sound.source.startCalls[0].when).toBe(2)
+
+    timeline.bpm = 60
+
+    // Committed: the source is already started at 2s and cannot be recalled.
+    expect(sound.source.startCalls[0].when).toBe(2)
+  })
+
+  test('leave the current position unchanged', () => {
+    const timeline = primedTimeline({ bpm: 120 })
+    timeline.context.currentTime = 2     // beat 4
+
+    timeline.bpm = 60
+
+    expect(timeline.currentBeat).toBe(4)
+    timeline.context.currentTime = 3
+    expect(timeline.currentBeat).toBe(5)
+  })
+})
+
+describe('everyBeat', () => {
+  test('calls back on the beat grid with the exact time', () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 2 })
+    const fired = []
+    timeline.everyBeat(1, (time, beat) => fired.push({ time, beat }))
+
+    timeline.tick()
+
+    // Lookahead of 2s at 120bpm reaches beat 4.
+    expect(fired).toEqual([
+      { time: 0, beat: 0 },
+      { time: 0.5, beat: 1 },
+      { time: 1, beat: 2 },
+      { time: 1.5, beat: 3 },
+      { time: 2, beat: 4 }
+    ])
+  })
+
+  test('does not repeat a grid point across ticks', () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 2 })
+    const fired = []
+    timeline.everyBeat(1, (time, beat) => fired.push(beat))
+
+    timeline.tick()
+    timeline.context.currentTime = 1
+    timeline.tick()
+
+    expect(fired).toEqual([0, 1, 2, 3, 4, 5, 6])
+  })
+
+  test('honours a subdivision', () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 1 })
+    const fired = []
+    timeline.everyBeat(0.25, (time, beat) => fired.push(beat))
+
+    timeline.tick()
+
+    expect(fired).toEqual([0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2])
+  })
+
+  test('follows a tempo change', () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 1 })
+    const fired = []
+    timeline.everyBeat(1, time => fired.push(time))
+
+    timeline.tick()                      // beats 0..2 at 0, 0.5, 1
+    timeline.context.currentTime = 1     // now at beat 2
+    timeline.bpm = 60
+    timeline.tick()
+
+    // From beat 2 (at 1s) a beat is a full second, so beat 3 lands at 2s.
+    expect(fired).toEqual([0, 0.5, 1, 2])
+  })
+
+  test('starts from a given beat when asked', () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 2 })
+    const fired = []
+    timeline.everyBeat(2, (time, beat) => fired.push(beat), 1)
+
+    timeline.tick()
+
+    expect(fired).toEqual([1, 3])
+  })
+
+  test('stopEveryBeat cancels it', () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 1 })
+    let fired = 0
+    const id = timeline.everyBeat(1, () => fired++)
+
+    timeline.tick()
+    const afterFirst = fired
+    expect(timeline.stopEveryBeat(id)).toBe(true)
+
+    timeline.context.currentTime = 10
+    timeline.tick()
+
+    expect(fired).toBe(afterFirst)
+    expect(timeline.stopEveryBeat(id)).toBe(false)
+  })
+
+  test('rejects a non-positive interval', () => {
+    const timeline = primedTimeline()
+
+    expect(() => timeline.everyBeat(0, () => {})).toThrow('greater than 0')
+    expect(() => timeline.everyBeat(-1, () => {})).toThrow('greater than 0')
+  })
+
+  test('stop clears repeats', () => {
+    const timeline = primedTimeline({ bpm: 120, lookahead: 1 })
+    let fired = 0
+    timeline.everyBeat(1, () => fired++)
+
+    timeline.stop()
+    timeline.isPlaying = true
+    timeline.context.currentTime = 10
+    timeline.tick()
+
+    expect(fired).toBe(0)
+  })
+})

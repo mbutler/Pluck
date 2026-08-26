@@ -1,6 +1,7 @@
 import Sound from './Sound.js'
 import PriorityQueue from './PriorityQueue.js'
 import Events from './Events.js'
+import Tempo from './Tempo.js'
 
 const timelineProperties = new WeakMap()
 
@@ -28,6 +29,13 @@ class Timeline {
       context: null,
       isPlaying: false,
       soundQueue: new PriorityQueue(),
+      // Musical events are queued in beats, not seconds. Converting only when
+      // they come due is what lets a tempo change move everything still in the
+      // queue; anything already handed to the audio clock is committed.
+      beatQueue: new PriorityQueue(),
+      repeats: [],
+      nextRepeatID: 1,
+      tempo: new Tempo(options),
       intervalIDs: {},
       events: new Events(),
       lookahead: options.lookahead ?? DEFAULTS.lookahead,
@@ -48,6 +56,9 @@ class Timeline {
 
     this.stopScheduler()
     properties.context = new (window.AudioContext || window.webkitAudioContext)()
+    // Beat 0 is the moment the transport starts, not the moment the context was
+    // created, so musical positions are relative to playback.
+    properties.tempo.reset(properties.context.currentTime, 0)
     properties.isPlaying = true
     this.events.trigger('start')
     await properties.context.resume()
@@ -67,15 +78,31 @@ class Timeline {
 
     const now = properties.context.currentTime
     const horizon = now + properties.lookahead
+    const tempo = properties.tempo
+
+    const due = []
 
     while (!properties.soundQueue.isEmpty() && properties.soundQueue.peek().priority <= horizon) {
       const entry = properties.soundQueue.dequeue()
-      if (!entry || !entry.sound) continue
+      if (entry && entry.sound) due.push({ sound: entry.sound, time: entry.time })
+    }
 
-      const { sound, time } = entry
+    const horizonBeat = tempo.timeToBeat(horizon)
+    while (!properties.beatQueue.isEmpty() && properties.beatQueue.peek().priority <= horizonBeat) {
+      const entry = properties.beatQueue.dequeue()
+      if (entry && entry.sound) {
+        due.push({ sound: entry.sound, time: tempo.beatToTime(entry.beat), beat: entry.beat })
+      }
+    }
 
+    this.runRepeats(horizonBeat)
+
+    // Both queues feed one stream of events, so order by when they will sound.
+    due.sort((a, b) => a.time - b.time)
+
+    for (const { sound, time, beat } of due) {
       if (time < now - properties.maxLateness) {
-        this.events.trigger('missed', sound, time)
+        this.events.trigger('missed', sound, time, beat)
         continue
       }
 
@@ -94,7 +121,7 @@ class Timeline {
         .catch(error => console.error('Error playing scheduled sound:', error))
         .finally(() => { tracked.ready = true })
 
-      this.events.trigger('play', sound, when)
+      this.events.trigger('play', sound, when, beat)
     }
 
     for (const tracked of properties.active) {
@@ -116,12 +143,15 @@ class Timeline {
     properties.active.forEach(entry => entry.sound.stop())
     properties.active.clear()
 
-    while (!properties.soundQueue.isEmpty()) {
-      const entry = properties.soundQueue.dequeue()
-      if (entry && entry.sound && entry.sound.isPlaying) {
-        entry.sound.stop()
+    for (const queue of [properties.soundQueue, properties.beatQueue]) {
+      while (!queue.isEmpty()) {
+        const entry = queue.dequeue()
+        if (entry && entry.sound && entry.sound.isPlaying) {
+          entry.sound.stop()
+        }
       }
     }
+    properties.repeats.length = 0
 
     if (properties.context && properties.context.state !== 'closed') {
       properties.context.close()
@@ -154,9 +184,74 @@ class Timeline {
     }
   }
 
+  /**
+   * Fires each registered repeat for every grid point now inside the lookahead
+   * window. The callback receives the exact audio-clock time of that grid point,
+   * so it can schedule sound there rather than playing when it is called --
+   * which is always early, by design.
+   */
+  runRepeats(horizonBeat) {
+    const properties = timelineProperties.get(this)
+
+    for (const repeat of properties.repeats) {
+      // A pathological interval combined with a wide horizon could spin here.
+      let fired = 0
+      while (repeat.nextBeat <= horizonBeat && fired < 256) {
+        repeat.callback(properties.tempo.beatToTime(repeat.nextBeat), repeat.nextBeat)
+        repeat.nextBeat += repeat.interval
+        fired++
+      }
+    }
+  }
+
+  /**
+   * Runs a callback on a musical grid: every `beats` beats, forever. Unlike
+   * startInterval, which counts wall-clock milliseconds and drifts against the
+   * audio clock, this follows tempo and is called ahead of time with the exact
+   * time to schedule for.
+   *
+   * @returns {number} an id for stopEveryBeat
+   */
+  everyBeat(beats, callback, startBeat = null) {
+    if (!(beats > 0)) throw new Error('everyBeat needs an interval greater than 0')
+
+    const properties = timelineProperties.get(this)
+    const from = startBeat ?? Math.ceil(this.currentBeat / beats) * beats
+    const id = properties.nextRepeatID++
+
+    properties.repeats.push({ id, interval: beats, nextBeat: from, callback })
+    return id
+  }
+
+  stopEveryBeat(id) {
+    const properties = timelineProperties.get(this)
+    const index = properties.repeats.findIndex(repeat => repeat.id === id)
+    if (index === -1) return false
+    properties.repeats.splice(index, 1)
+    return true
+  }
+
   scheduleSound(sound, time) {
     this.soundQueue.enqueue({ sound, time }, time)
     this.events.trigger('scheduled', sound, time)
+  }
+
+  /** Schedules a sound at a beat position rather than at a number of seconds. */
+  scheduleBeat(sound, beat) {
+    const properties = timelineProperties.get(this)
+    properties.beatQueue.enqueue({ sound, beat }, beat)
+    this.events.trigger('scheduled', sound, properties.tempo.beatToTime(beat), beat)
+  }
+
+  /** Schedules a sound at bar/beat. Both are zero-indexed. */
+  scheduleBar(sound, bar, beat = 0) {
+    this.scheduleBeat(sound, this.at(bar, beat))
+  }
+
+  rescheduleBeat(sound, newBeat) {
+    const properties = timelineProperties.get(this)
+    properties.beatQueue.remove(entry => entry.sound === sound)
+    this.scheduleBeat(sound, newBeat)
   }
 
   rescheduleSound(sound, newTime) {
@@ -183,6 +278,83 @@ class Timeline {
 
   future(seconds) {
     return this.currentTime + seconds
+  }
+
+  /* ---- musical position ------------------------------------------------ *
+   * Bars and beats are zero-indexed: bar 0 beat 0 is the downbeat.
+   * -------------------------------------------------------------------- */
+
+  /** The beat number for a bar/beat position, for passing to scheduleBeat. */
+  at(bar, beat = 0) {
+    return this.tempo.barToBeat(bar, beat)
+  }
+
+  beatToTime(beat) {
+    return this.tempo.beatToTime(beat)
+  }
+
+  timeToBeat(time) {
+    return this.tempo.timeToBeat(time)
+  }
+
+  beatsToSeconds(beats) {
+    return this.tempo.beatsToSeconds(beats)
+  }
+
+  secondsToBeats(seconds) {
+    return this.tempo.secondsToBeats(seconds)
+  }
+
+  /**
+   * The next whole beat boundary, always strictly ahead of now, for launching
+   * something in sync with what is already playing.
+   */
+  nextBeat(count = 1) {
+    return Math.floor(this.currentBeat) + count
+  }
+
+  /** The downbeat of the next bar, in beats. */
+  nextBar(count = 1) {
+    return (Math.floor(this.currentBar) + count) * this.beatsPerBar
+  }
+
+  get tempo() {
+    return timelineProperties.get(this).tempo
+  }
+
+  get bpm() {
+    return timelineProperties.get(this).tempo.bpm
+  }
+
+  /**
+   * Changes tempo from now onward. Beats already played keep their times, and
+   * anything still queued but outside the lookahead window moves with the new
+   * tempo. Sounds already handed to the audio clock are committed and will not
+   * move -- the same way a DAW cannot un-send audio to the hardware.
+   */
+  set bpm(value) {
+    const properties = timelineProperties.get(this)
+    properties.tempo.setBpm(value, this.currentTime)
+  }
+
+  get beatsPerBar() {
+    return timelineProperties.get(this).tempo.beatsPerBar
+  }
+
+  set beatsPerBar(value) {
+    timelineProperties.get(this).tempo.beatsPerBar = value
+  }
+
+  get currentBeat() {
+    return this.tempo.timeToBeat(this.currentTime)
+  }
+
+  get currentBar() {
+    return this.tempo.beatToBar(this.currentBeat)
+  }
+
+  get beatQueue() {
+    return timelineProperties.get(this).beatQueue
   }
 
   get context() {

@@ -52,6 +52,7 @@ Pluck.js is a modern, lightweight, and efficient JavaScript sound library design
     - Voice.test.js
     - Group.test.js
     - Timeline.test.js
+    - Tempo.test.js
     - BufferCache.test.js
     - PriorityQueue.test.js
     - Events.test.js
@@ -107,6 +108,28 @@ Pluck.js is a modern, lightweight, and efficient JavaScript sound library design
     overdue are dropped and reported through the `missed` event, rather than
     released as one burst.
   - All three are settable: `new Timeline({ lookahead, tickInterval, maxLateness })`.
+  - Musical scheduling sits on top: `scheduleBeat(sound, beat)` and
+    `scheduleBar(sound, bar, beat)` queue in beats rather than seconds, and
+    `everyBeat(beats, callback)` runs a callback on the beat grid. Beats convert
+    to seconds only when they come due, so a tempo change moves everything still
+    queued; anything already inside the lookahead window is committed and keeps
+    the time it was given.
+  - `everyBeat` is what a sequencer should use in place of `startInterval`. The
+    callback receives the exact audio-clock time of the grid point and is called
+    *ahead* of it, so it can schedule sound at that time rather than playing
+    when it happens to run. `startInterval` counts wall-clock milliseconds and
+    drifts against the audio clock; it is fine for UI, not for music.
+
+- **Tempo.js**
+  - Maps musical position to audio-clock time. The mapping is an anchor — "at
+    `time` the transport was at `beat`, running at `bpm`" — rather than a
+    multiplication from zero, which is what makes tempo changes work: changing
+    tempo re-anchors at the current position, so beats already played keep the
+    times they were played at and only the future stretches.
+  - Bars and beats are zero-indexed: bar 0 beat 0 is the downbeat.
+  - `new Timeline({ bpm: 140, beatsPerBar: 4 })`, then `timeline.bpm = 90` to
+    change it. `currentBeat`, `currentBar`, `at(bar, beat)`, `nextBeat()` and
+    `nextBar()` cover the usual position arithmetic.
 
 - **Effects.js**
   - Provides a base for adding effects to sounds.
@@ -131,7 +154,8 @@ bun test
     last set value rather than a ramp in progress.
 
 - **Sound.test.js**, **Voice.test.js**, **Group.test.js**, **Timeline.test.js**,
-  **BufferCache.test.js**, **PriorityQueue.test.js**, **Events.test.js**
+  **Tempo.test.js**, **BufferCache.test.js**, **PriorityQueue.test.js**,
+  **Events.test.js**
   - Run against the mock under Bun's test runner, so they need no browser and
     finish in well under a second.
 
