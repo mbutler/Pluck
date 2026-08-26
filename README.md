@@ -166,15 +166,18 @@ With no source at all, a Sound defaults to a 440 Hz sine.
 
 ### Properties
 
-`source`, `voices`, `outputNode`, `effects` and `isPlaying` are read-only;
-`volume`, `loop`, `attack`, `release`, `offset`, `polyphony`, `output`,
-`clearBuffer` and `audioBuffer` are settable. `source` is `null` until something
-is playing, then reads as the most recent voice's source.
+`source`, `voices`, `outputNode`, `effects`, `isPlaying`, `isStreaming`,
+`streamUrl` and `audioElement` are read-only; `volume`, `loop`, `attack`,
+`release`, `offset`, `polyphony`, `output`, `clearBuffer` and `audioBuffer` are
+settable. `source` is `null` until something is playing, then reads as the most
+recent voice's source — or, for a streamed sound, the media element node, which
+persists.
 
-`clone()` picks one source in priority order — decoded buffer, then file, then
-wave, then microphone stream — and carries every playback setting across. It
-shares the buffer rather than copying it, and reuses a microphone stream rather
-than prompting again.
+`clone()` picks one source in priority order — stream URL, then decoded buffer,
+then file, then wave, then microphone stream — and carries every playback
+setting across. It shares the buffer rather than copying it, and reuses a
+microphone stream rather than prompting again. A cloned stream gets its own
+element and plays independently.
 
 ### Streaming long audio
 
@@ -244,6 +247,14 @@ sound refuses to be played directly — play the group.
 `mute()` / `unmute()` remember the previous volume. `fadeVolumeTo(value,
 duration)` ramps the bus. `removeSound(sound)` restores the sound's direct
 routing and clears its grouped flag.
+
+`stop({ fade })` forwards the fade to every member, which is how one set of
+layers is crossfaded into another: fade the outgoing group out while the
+incoming sounds fade in through their `attack`.
+
+```js
+await outgoing.stop({ fade: 5 })
+```
 
 `isPlaying` is true while any member is sounding, and `ended` waits for the last
 of them.
@@ -421,6 +432,9 @@ bufferCache.delete(url)   // drop one
 bufferCache.clear()       // release everything
 ```
 
+`bufferBytes(buffer)` is exported too, for measuring a buffer before deciding
+what ceiling to set.
+
 The shared cache is unbounded by default, which suits short samples. Anything
 working with longer audio should set a ceiling and use its own cache:
 
@@ -498,7 +512,7 @@ builds a fresh node. This is why `sound.source` is `null` before playback.
 
 ```bash
 bun install
-bun test          # 299 tests
+bun run test      # 348 tests
 bun run build     # all three bundles
 bun run start     # rebuild the script bundle on change
 bun run document  # JSDoc into docs/
