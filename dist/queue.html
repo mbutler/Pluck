@@ -9,14 +9,19 @@
   <h1>Pluck Timeline Test</h1>
   <p>Click the button below to start the timeline and play sounds.</p>
   <button id="startButton">Start Timeline</button>
+  <button id="replayButton">Replay Group</button>
   <button id="stopButton">Stop Timeline</button>
   <script src="pluck.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
 
       const startButton = document.getElementById('startButton')
+      const replayButton = document.getElementById('replayButton')
       const stopButton = document.getElementById('stopButton')
       const timeline = new Pluck.Timeline()
+
+      // Held outside the start handler so the replay button can reach it.
+      let group = null
 
       startButton.addEventListener('click', async () => {
         
@@ -47,7 +52,7 @@
           console.log(`LISTENER::: 'play' Sound ${sound1.fileName} played at ${timeline.currentTime} seconds`)
         })    
         
-        const group = new Pluck.Group(timeline.context)
+        group = new Pluck.Group(timeline.context)
         group.addSounds([sound1, sound2, sound3])
 
         // play 
@@ -95,6 +100,28 @@
       }) 
       
         
+      // Stop and play the same group again. Every source node in it is rebuilt,
+      // which is the part that used to fail: source nodes are single-use, so the
+      // second play() found nothing left to start.
+      replayButton.addEventListener('click', async () => {
+        if (!group) {
+          console.warn('Start the timeline first.')
+          return
+        }
+
+        if (group.muted) {
+          console.log('Group was muted; unmuting so the replay is audible.')
+          group.unmute()
+        }
+
+        await group.stop()
+        console.log('Group stopped. Playing:', group.sounds.map(sound => sound.isPlaying))
+
+        await group.play()
+        console.log('Group replayed at', timeline.currentTime, 'seconds. Playing:',
+          group.sounds.map(sound => sound.isPlaying))
+      })
+
       stopButton.addEventListener('click', () => {
         timeline.stop()
       })
