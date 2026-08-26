@@ -3,10 +3,10 @@
   "module": "index.js",
   "devDependencies": {
     "@types/bun": "latest",
-    "documentation": "^14.0.3",
-    "puppeteer-core": "^22.11.2"
+    "documentation": "^14.0.3"
   },
   "scripts": {
+    "test": "bun test",
     "build": "bun run build:dev && bun run build:min",
     "build:dev": "bun build src/index.js --outfile ./dist/pluck.js",
     "build:min": "bun build --minify src/index.js --outfile ./dist/pluck.min.js",

@@ -57,6 +57,7 @@ class Sound {
       isPlaying: false,
       isGrouped: false,
       events: new Events_default,
+      sourceStarted: false,
       waveOptions: options.wave || null,
       output: audioContext.destination
     };
@@ -103,6 +104,7 @@ class Sound {
     source.buffer = this.audioBuffer;
     source.loop = this.loop;
     this.source = source;
+    soundProperties.get(this).sourceStarted = false;
     this.connectGain();
     source.onended = () => {
       if (this.source !== source)
@@ -120,6 +122,7 @@ class Sound {
     source.type = waveOptions.type || "sine";
     source.frequency.value = waveOptions.frequency || 440;
     this.source = source;
+    properties.sourceStarted = false;
     this.connectGain();
     source.onended = () => {
       if (this.source !== source)
@@ -127,6 +130,17 @@ class Sound {
       this.isPlaying = false;
       this.source = null;
     };
+  }
+  releaseSource() {
+    const properties = soundProperties.get(this);
+    const source = properties.source;
+    if (!source)
+      return;
+    if (properties.sourceStarted && source.stop)
+      source.stop();
+    source.disconnect();
+    properties.sourceStarted = false;
+    properties.source = null;
   }
   createSource() {
     if (this.audioBuffer) {
@@ -170,16 +184,14 @@ class Sound {
       console.error("No audio buffer or source available to play");
       return;
     }
-    if (this.source) {
-      this.source.disconnect();
-      this.source = null;
-    }
+    this.releaseSource();
     this.createSource();
     if (this.source && this.source.start) {
       this.isPlaying = true;
       this.applyAttack();
       this.events.trigger("play");
       this.source.start(this.context.currentTime, this.offset);
+      soundProperties.get(this).sourceStarted = true;
     } else {
       console.error("No source to play");
       this.isPlaying = false;
@@ -187,13 +199,7 @@ class Sound {
   }
   stop() {
     this.isPlaying = false;
-    if (this.source) {
-      this.source.disconnect();
-      if (this.source.stop) {
-        this.source.stop();
-      }
-      this.source = null;
-    }
+    this.releaseSource();
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());
       this.mediaStream = null;

@@ -50,7 +50,9 @@ Pluck.js is a modern, lightweight, and efficient JavaScript sound library design
       - MockAudioContext.js
     - Sound.test.js
     - Group.test.js
-    - Effects.test.js
+    - Timeline.test.js
+    - PriorityQueue.test.js
+    - Events.test.js
   - index.html (Sample HTML file for testing in the browser)
   - README.md (Project documentation)
 
@@ -78,12 +80,29 @@ Pluck.js is a modern, lightweight, and efficient JavaScript sound library design
 
 ### Testing
 
-- **MockAudioContext.js**
-  - Provides a mock implementation of the Web Audio API for testing purposes.
+Run the suite with:
 
-- **Sound.test.js**
-  - Comprehensive tests for the `Sound` class using Bun's testing framework.
-  - **Note**: One test related to playback is currently not passing, but the basic functionality is verified to work in the browser.
+```bash
+bun test
+```
+
+- **mocks/MockAudioContext.js**
+  - A stand-in for the parts of the Web Audio API that Pluck uses. It records
+    every `connect()` so tests can assert on the shape of the audio graph, and
+    it reproduces the spec behaviours Pluck has to respect: a source node can
+    only be started once, `stop()` before `start()` is an error, connecting the
+    same pair of nodes twice is a no-op, and `AudioParam.value` reflects the
+    last set value rather than a ramp in progress.
+
+- **Sound.test.js**, **Group.test.js**, **Timeline.test.js**,
+  **PriorityQueue.test.js**, **Events.test.js**
+  - Run against the mock under Bun's test runner, so they need no browser and
+    finish in well under a second.
+
+The tests are only as truthful as the mock. If one of its assumptions about the
+Web Audio API is wrong, the suite will agree with itself and still disagree with
+a browser, so the demo pages in `dist/` remain the manual check against the real
+API.
 
 ### Build and Bundle
 
@@ -124,9 +143,6 @@ A sample `index.html` file demonstrates how to use Pluck.js to create and play a
 ```
 
 ## Future Work
-
-- **Fix Playback Test**
-  - Address the issue with the playback test in `Sound.test.js` to ensure all tests pass.
 
 - **Additional Features and Improvements**
   - Implement additional effects and refine the existing ones.

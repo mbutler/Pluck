@@ -25,6 +25,7 @@ class Sound {
       isPlaying: false,
       isGrouped: false,
       events: new Events(),
+      sourceStarted: false,
       waveOptions: options.wave || null,
       output: audioContext.destination
     }
@@ -76,6 +77,7 @@ class Sound {
     source.buffer = this.audioBuffer
     source.loop = this.loop
     this.source = source
+    soundProperties.get(this).sourceStarted = false
     this.connectGain()
     source.onended = () => {
       // A later play() may already have swapped in a fresh source.
@@ -93,12 +95,26 @@ class Sound {
     source.type = waveOptions.type || 'sine'
     source.frequency.value = waveOptions.frequency || 440
     this.source = source
+    properties.sourceStarted = false
     this.connectGain()
     source.onended = () => {
       if (this.source !== source) return
       this.isPlaying = false
       this.source = null
     }
+  }
+
+  // Stops and unhooks the current source. A source node that was never started
+  // must not be stopped: the Web Audio spec makes that an InvalidStateError.
+  releaseSource() {
+    const properties = soundProperties.get(this)
+    const source = properties.source
+    if (!source) return
+
+    if (properties.sourceStarted && source.stop) source.stop()
+    source.disconnect()
+    properties.sourceStarted = false
+    properties.source = null
   }
 
   // Source nodes are single-use, so every play() needs a fresh one.
@@ -156,10 +172,7 @@ class Sound {
     // last play() left behind and build a new one. Grouped sounds included:
     // the fresh source feeds this.gainNode, which is already wired to the
     // group, so the routing survives.
-    if (this.source) {
-      this.source.disconnect()
-      this.source = null
-    }
+    this.releaseSource()
     this.createSource()
 
     if (this.source && this.source.start) {
@@ -167,6 +180,7 @@ class Sound {
       this.applyAttack()
       this.events.trigger('play')
       this.source.start(this.context.currentTime, this.offset)
+      soundProperties.get(this).sourceStarted = true
     } else {
       console.error('No source to play')
       this.isPlaying = false
@@ -174,20 +188,15 @@ class Sound {
   }
 
   stop() {
-    this.isPlaying = false;
-    if (this.source) {
-        this.source.disconnect();
-        if (this.source.stop) {
-            this.source.stop();
-        }
-        this.source = null;
-    }
+    this.isPlaying = false
+    this.releaseSource()
+
     if (this.mediaStream) {
-        this.mediaStream.getTracks().forEach(track => track.stop());
-        this.mediaStream = null;
+      this.mediaStream.getTracks().forEach(track => track.stop())
+      this.mediaStream = null
     }
     if (this.clearBuffer) {
-        this.audioBuffer = null;
+      this.audioBuffer = null
     }
   }
 
