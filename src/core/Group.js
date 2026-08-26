@@ -1,4 +1,5 @@
 import Sound from './Sound.js'
+import Events from './Events.js'
 import { rebuildChain } from './chain.js'
 import { isAudioContext } from './audioContext.js'
 
@@ -23,7 +24,11 @@ class Group {
       // A group's effects process every sound in it at once, which is the
       // point of a bus: one reverb for the kit, not one per drum.
       effects: [],
-      taps: new Set()
+      taps: new Set(),
+      events: new Events(),
+      // One 'ended' listener per member, kept so it can be detached again when
+      // the sound leaves the group.
+      endedListeners: new Map()
     }
     
     groupProperties.set(this, properties)    
@@ -40,15 +45,52 @@ class Group {
       }
     })
     await Promise.all(promises)
+    this.events.trigger('play', this)
   }
 
   async stop() {
+    // Announced before the members are stopped, so 'stop' precedes the 'ended'
+    // their stopping triggers -- the same order a Sound uses.
+    this.events.trigger('stop', this)
+
     const promises = this.sounds.map(async (sound) => {
       if (sound.isPlaying) {
         sound.stop()
       }
     })
     await Promise.all(promises)
+  }
+
+  /** True while any member is sounding. */
+  get isPlaying() {
+    return this.sounds.some(sound => sound.isPlaying)
+  }
+
+  /**
+   * A member finished. The group has only ended once none of them is left
+   * sounding, so this fires at most once per run rather than once per sound.
+   */
+  handleSoundEnded() {
+    if (this.isPlaying) return
+    this.events.trigger('ended', this)
+  }
+
+  watchSound(sound) {
+    const properties = groupProperties.get(this)
+    if (properties.endedListeners.has(sound)) return
+
+    const listener = () => this.handleSoundEnded()
+    properties.endedListeners.set(sound, listener)
+    sound.events.on('ended', listener)
+  }
+
+  unwatchSound(sound) {
+    const properties = groupProperties.get(this)
+    const listener = properties.endedListeners.get(sound)
+    if (!listener) return
+
+    sound.events.off('ended', listener)
+    properties.endedListeners.delete(sound)
   }
 
   addSounds(sounds) {
@@ -74,6 +116,7 @@ class Group {
       sound.isGrouped = true
       sound.output = this.gainNode
       this.sounds.push(sound)
+      this.watchSound(sound)
     })
   }
   
@@ -85,6 +128,7 @@ class Group {
     }
     sound.isGrouped = false
     sound.output = sound.context.destination
+    this.unwatchSound(sound)
     this.sounds.splice(index, 1)
     if (this.sounds.length === 0) {
       this.outputNode.disconnect(this.context.destination)
@@ -190,6 +234,10 @@ class Group {
       this.volume = this.previousVolume
       this.muted = false
     }
+  }
+
+  get events() {
+    return groupProperties.get(this).events
   }
 
   get context() {

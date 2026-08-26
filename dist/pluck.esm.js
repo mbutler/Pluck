@@ -1005,7 +1005,9 @@ class Group {
       muted: false,
       previousVolume: 1,
       effects: [],
-      taps: new Set
+      taps: new Set,
+      events: new Events_default,
+      endedListeners: new Map
     };
     groupProperties.set(this, properties);
   }
@@ -1020,14 +1022,40 @@ class Group {
       }
     });
     await Promise.all(promises);
+    this.events.trigger("play", this);
   }
   async stop() {
+    this.events.trigger("stop", this);
     const promises = this.sounds.map(async (sound) => {
       if (sound.isPlaying) {
         sound.stop();
       }
     });
     await Promise.all(promises);
+  }
+  get isPlaying() {
+    return this.sounds.some((sound) => sound.isPlaying);
+  }
+  handleSoundEnded() {
+    if (this.isPlaying)
+      return;
+    this.events.trigger("ended", this);
+  }
+  watchSound(sound) {
+    const properties = groupProperties.get(this);
+    if (properties.endedListeners.has(sound))
+      return;
+    const listener = () => this.handleSoundEnded();
+    properties.endedListeners.set(sound, listener);
+    sound.events.on("ended", listener);
+  }
+  unwatchSound(sound) {
+    const properties = groupProperties.get(this);
+    const listener = properties.endedListeners.get(sound);
+    if (!listener)
+      return;
+    sound.events.off("ended", listener);
+    properties.endedListeners.delete(sound);
   }
   addSounds(sounds) {
     if (!Array.isArray(sounds)) {
@@ -1047,6 +1075,7 @@ class Group {
       sound.isGrouped = true;
       sound.output = this.gainNode;
       this.sounds.push(sound);
+      this.watchSound(sound);
     });
   }
   removeSound(sound) {
@@ -1057,6 +1086,7 @@ class Group {
     }
     sound.isGrouped = false;
     sound.output = sound.context.destination;
+    this.unwatchSound(sound);
     this.sounds.splice(index, 1);
     if (this.sounds.length === 0) {
       this.outputNode.disconnect(this.context.destination);
@@ -1142,6 +1172,9 @@ class Group {
       this.volume = this.previousVolume;
       this.muted = false;
     }
+  }
+  get events() {
+    return groupProperties.get(this).events;
   }
   get context() {
     return groupProperties.get(this).context;

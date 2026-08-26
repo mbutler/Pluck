@@ -310,3 +310,186 @@ describe('stop', () => {
     expect(async () => await group.stop()).not.toThrow()
   })
 })
+
+describe('events', () => {
+  const readySound = async (options = {}) => {
+    const sound = bufferedSound(options)
+    await sound.initialized
+    return sound
+  }
+
+  test('a group has its own event surface', () => {
+    const group = new Group(context)
+
+    expect(group.events).toBeTruthy()
+    expect(typeof group.events.on).toBe('function')
+  })
+
+  test('play fires once for the group, not once per sound', async () => {
+    const group = new Group(context)
+    group.addSounds([await readySound(), await readySound()])
+    let played = 0
+    group.events.on('play', () => played++)
+
+    await group.play()
+
+    expect(played).toBe(1)
+  })
+
+  test('the play event carries the group', async () => {
+    const group = new Group(context)
+    group.addSounds([await readySound()])
+    const seen = []
+    group.events.on('play', g => seen.push(g))
+
+    await group.play()
+
+    expect(seen).toEqual([group])
+  })
+
+  test('isPlaying reflects its members', async () => {
+    const group = new Group(context)
+    const sound = await readySound()
+    group.addSounds([sound])
+
+    expect(group.isPlaying).toBe(false)
+    await group.play()
+    expect(group.isPlaying).toBe(true)
+    await group.stop()
+    expect(group.isPlaying).toBe(false)
+  })
+
+  // The group has not ended while any member is still sounding.
+  test('ended waits for the last sound', async () => {
+    const group = new Group(context)
+    const one = await readySound()
+    const two = await readySound()
+    group.addSounds([one, two])
+    let ended = 0
+    group.events.on('ended', () => ended++)
+
+    await group.play()
+
+    one.source.onended()
+    expect(ended).toBe(0)
+
+    two.source.onended()
+    expect(ended).toBe(1)
+  })
+
+  test('ended fires once even with several sounds ending together', async () => {
+    const group = new Group(context)
+    const sounds = [await readySound(), await readySound(), await readySound()]
+    group.addSounds(sounds)
+    let ended = 0
+    group.events.on('ended', () => ended++)
+
+    await group.play()
+    await group.stop()
+
+    expect(ended).toBe(1)
+  })
+
+  test('stop fires before ended', async () => {
+    const group = new Group(context)
+    group.addSounds([await readySound()])
+    const seen = []
+    group.events.on('stop', () => seen.push('stop'))
+    group.events.on('ended', () => seen.push('ended'))
+
+    await group.play()
+    await group.stop()
+
+    expect(seen).toEqual(['stop', 'ended'])
+  })
+
+  test('stopping an idle group fires stop but not ended', async () => {
+    const group = new Group(context)
+    group.addSounds([await readySound()])
+    const seen = []
+    group.events.on('stop', () => seen.push('stop'))
+    group.events.on('ended', () => seen.push('ended'))
+
+    await group.stop()
+
+    expect(seen).toEqual(['stop'])
+  })
+
+  test('a polyphonic member ending one voice does not end the group', async () => {
+    const group = new Group(context)
+    const sound = await readySound({ polyphony: 3 })
+    group.addSounds([sound])
+    let ended = 0
+    group.events.on('ended', () => ended++)
+
+    await group.play()
+    await sound.play(true)
+    const voices = sound.voices
+
+    voices[0].source.onended()
+    expect(ended).toBe(0)
+
+    voices[1].source.onended()
+    expect(ended).toBe(1)
+  })
+
+  test('the group can run again after ending', async () => {
+    const group = new Group(context)
+    const sound = await readySound()
+    group.addSounds([sound])
+    let ended = 0
+    group.events.on('ended', () => ended++)
+
+    await group.play()
+    await group.stop()
+    await group.play()
+    await group.stop()
+
+    expect(ended).toBe(2)
+  })
+
+  // Membership changing is not the group ending, so removal stays quiet. It
+  // must also detach the listener, or a removed sound would keep reporting in.
+  test('removing a sound detaches its listener', async () => {
+    const group = new Group(context)
+    const sound = await readySound()
+    group.addSounds([sound])
+    let ended = 0
+    group.events.on('ended', () => ended++)
+
+    await group.play()
+    group.removeSound(sound)
+    expect(ended).toBe(0)
+
+    await sound.play()
+    sound.stop()
+
+    expect(ended).toBe(0)
+  })
+
+  test('re-adding a sound attaches the listener once', async () => {
+    const group = new Group(context)
+    const sound = await readySound()
+    group.addSounds([sound])
+    group.removeSound(sound)
+    group.addSounds([sound])
+    let ended = 0
+    group.events.on('ended', () => ended++)
+
+    await group.play()
+    await group.stop()
+
+    expect(ended).toBe(1)
+  })
+
+  test('a rejected sound is not watched', async () => {
+    const group = new Group(context)
+    const foreign = new Sound({ context: new MockAudioContext(), audioBuffer: {} })
+    await foreign.initialized
+
+    group.addSounds([foreign])
+
+    expect(group.sounds.length).toBe(0)
+    expect(() => { foreign.stop() }).not.toThrow()
+  })
+})

@@ -131,6 +131,13 @@ bundle on change while working on the demos in `dist/`.
 
 - **Group.js**
   - Manages groups of sounds, allowing for collective playback and manipulation.
+  - Fires the same `play` / `stop` / `ended` events a Sound does, once for the
+    group rather than once per member. `isPlaying` is true while any member is
+    sounding, and `ended` waits for the last of them — a short sound finishing
+    while a longer one still rings does not end the group.
+  - The group listens to its members' `ended` events to work that out, and
+    detaches the listener when a sound is removed. Removing a sound is a change
+    of membership rather than the group ending, so it fires nothing.
 
 - **Timeline.js**
   - Schedules sounds against the audio clock using lookahead. A timer wakes the
