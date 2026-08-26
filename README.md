@@ -72,6 +72,21 @@ Pluck.js is a modern, lightweight, and efficient JavaScript sound library design
 - **Group.js**
   - Manages groups of sounds, allowing for collective playback and manipulation.
 
+- **Timeline.js**
+  - Schedules sounds against the audio clock using lookahead. A timer wakes the
+    scheduler every `tickInterval` seconds and hands every sound due within the
+    next `lookahead` seconds to the hardware with its exact start time, so
+    playback accuracy does not depend on when the timer happens to fire.
+  - `lookahead` defaults to 2 seconds, comfortably more than the one second that
+    browsers throttle background timers to, so a hidden tab keeps playing on
+    time. (`requestAnimationFrame`, which this replaced, stops entirely in a
+    hidden tab.)
+  - If the scheduler is starved for longer than that anyway — a sleeping machine,
+    or unusually aggressive throttling — sounds more than `maxLateness` seconds
+    overdue are dropped and reported through the `missed` event, rather than
+    released as one burst.
+  - All three are settable: `new Timeline({ lookahead, tickInterval, maxLateness })`.
+
 - **Effects.js**
   - Provides a base for adding effects to sounds.
 

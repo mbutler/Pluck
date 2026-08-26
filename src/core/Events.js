@@ -5,6 +5,7 @@ class Events {
       stop: [],
       loop: [],
       scheduled: [],
+      missed: [],
       play: [],
       effect: []
     }

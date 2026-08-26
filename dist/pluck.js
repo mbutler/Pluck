@@ -6,6 +6,7 @@ class Events {
       stop: [],
       loop: [],
       scheduled: [],
+      missed: [],
       play: [],
       effect: []
     };
@@ -167,7 +168,7 @@ class Sound {
       console.error("No source to connect to gain node");
     }
   }
-  async play(fromGroup = false) {
+  async play(fromGroup = false, when = 0) {
     if (this.isGrouped && !fromGroup) {
       console.warn(`Cannot play the sound ${this.fileName} directly. It is in a group.`);
       return;
@@ -187,10 +188,11 @@ class Sound {
     this.releaseSource();
     this.createSource();
     if (this.source && this.source.start) {
+      const startTime = when > this.context.currentTime ? when : this.context.currentTime;
       this.isPlaying = true;
-      this.applyAttack();
+      this.applyAttack(startTime);
       this.events.trigger("play");
-      this.source.start(this.context.currentTime, this.offset);
+      this.source.start(startTime, this.offset);
       soundProperties.get(this).sourceStarted = true;
     } else {
       console.error("No source to play");
@@ -231,21 +233,20 @@ class Sound {
     }
     return new Sound(options);
   }
-  applyAttack() {
+  applyAttack(startTime = this.context.currentTime) {
     if (!this.gainNode)
       return;
-    const currentTime = this.context.currentTime;
-    this.gainNode.gain.setValueAtTime(0, currentTime);
-    this.gainNode.gain.linearRampToValueAtTime(this.volume, currentTime + this.attack);
+    this.gainNode.gain.setValueAtTime(0, startTime);
+    this.gainNode.gain.linearRampToValueAtTime(this.volume, startTime + this.attack);
   }
-  applyRelease(callback) {
+  applyRelease(callback, startTime = this.context.currentTime) {
     if (!this.gainNode)
       return;
-    const currentTime = this.context.currentTime;
-    this.gainNode.gain.setValueAtTime(this.volume, currentTime);
-    this.gainNode.gain.linearRampToValueAtTime(0, currentTime + this.release);
+    this.gainNode.gain.setValueAtTime(this.volume, startTime);
+    this.gainNode.gain.linearRampToValueAtTime(0, startTime + this.release);
     if (typeof callback === "function") {
-      setTimeout(callback, this.release * 1000);
+      const delay = (startTime - this.context.currentTime + this.release) * 1000;
+      setTimeout(callback, Math.max(0, delay));
     }
   }
   connect(node) {
@@ -472,18 +473,94 @@ var PriorityQueue_default = PriorityQueue;
 
 // src/core/Timeline.js
 var timelineProperties = new WeakMap;
+var DEFAULTS = {
+  lookahead: 2,
+  tickInterval: 0.25,
+  maxLateness: 1
+};
 
 class Timeline {
-  constructor() {
+  constructor(options = {}) {
     const properties = {
       context: null,
-      currentTime: 0,
       isPlaying: false,
       soundQueue: new PriorityQueue_default,
       intervalIDs: {},
-      events: new Events_default
+      events: new Events_default,
+      lookahead: options.lookahead ?? DEFAULTS.lookahead,
+      tickInterval: options.tickInterval ?? DEFAULTS.tickInterval,
+      maxLateness: options.maxLateness ?? DEFAULTS.maxLateness,
+      schedulerID: null,
+      active: new Set
     };
     timelineProperties.set(this, properties);
+  }
+  async start() {
+    console.info("Starting timeline");
+    const properties = timelineProperties.get(this);
+    this.stopScheduler();
+    properties.context = new (window.AudioContext || window.webkitAudioContext);
+    properties.isPlaying = true;
+    this.events.trigger("start");
+    await properties.context.resume();
+    this.tick();
+    properties.schedulerID = setInterval(() => this.tick(), properties.tickInterval * 1000);
+  }
+  tick() {
+    const properties = timelineProperties.get(this);
+    if (!properties.isPlaying || !properties.context)
+      return;
+    const now = properties.context.currentTime;
+    const horizon = now + properties.lookahead;
+    while (!properties.soundQueue.isEmpty() && properties.soundQueue.peek().priority <= horizon) {
+      const entry = properties.soundQueue.dequeue();
+      if (!entry || !entry.sound)
+        continue;
+      const { sound, time } = entry;
+      if (time < now - properties.maxLateness) {
+        this.events.trigger("missed", sound, time);
+        continue;
+      }
+      const when = Math.max(time, now);
+      const tracked = { sound, ready: false };
+      properties.active.add(tracked);
+      Promise.resolve(sound.play(false, when)).catch((error) => console.error("Error playing scheduled sound:", error)).finally(() => {
+        tracked.ready = true;
+      });
+      this.events.trigger("play", sound, when);
+    }
+    for (const tracked of properties.active) {
+      if (tracked.ready && !tracked.sound.isPlaying)
+        properties.active.delete(tracked);
+    }
+    this.events.trigger("loop");
+  }
+  stop() {
+    const properties = timelineProperties.get(this);
+    Object.keys(properties.intervalIDs).forEach((intervalInSeconds) => {
+      this.stopInterval(Number(intervalInSeconds));
+    });
+    this.stopScheduler();
+    properties.active.forEach((entry) => entry.sound.stop());
+    properties.active.clear();
+    while (!properties.soundQueue.isEmpty()) {
+      const entry = properties.soundQueue.dequeue();
+      if (entry && entry.sound && entry.sound.isPlaying) {
+        entry.sound.stop();
+      }
+    }
+    if (properties.context && properties.context.state !== "closed") {
+      properties.context.close();
+    }
+    properties.isPlaying = false;
+    this.events.trigger("stop");
+  }
+  stopScheduler() {
+    const properties = timelineProperties.get(this);
+    if (properties.schedulerID === null)
+      return;
+    clearInterval(properties.schedulerID);
+    properties.schedulerID = null;
   }
   startInterval(intervalInSeconds, callback) {
     const intervalID = setInterval(() => {
@@ -499,50 +576,6 @@ class Timeline {
       this.intervalIDs = remainingIntervalIDs;
     }
   }
-  async start() {
-    console.info("Starting timeline");
-    this.context = new (window.AudioContext || window.webkitAudioContext);
-    this.isPlaying = true;
-    this.events.trigger("start");
-    await this.context.resume();
-    this.loop();
-  }
-  async loop() {
-    if (!this.isPlaying)
-      return;
-    this.currentTime = this.context.currentTime;
-    while (!this.soundQueue.isEmpty() && this.soundQueue.peek().priority <= this.currentTime) {
-      const node = this.soundQueue.dequeue();
-      const { sound, time } = node;
-      if (sound) {
-        try {
-          await sound.play();
-          this.events.trigger("play", sound, this.currentTime);
-        } catch (error) {
-          console.error("Error playing sound:", error);
-        }
-      }
-    }
-    this.events.trigger("loop");
-    requestAnimationFrame(() => this.loop());
-  }
-  stop() {
-    Object.keys(this.intervalIDs).forEach((intervalInSeconds) => {
-      this.stopInterval(Number(intervalInSeconds));
-    });
-    while (!this.soundQueue.isEmpty()) {
-      const node = this.soundQueue.dequeue();
-      const { sound } = node;
-      if (sound && sound.isPlaying) {
-        sound.stop();
-      }
-    }
-    if (this.context && this.context.state !== "closed") {
-      this.context.close();
-    }
-    this.isPlaying = false;
-    this.events.trigger("stop");
-  }
   scheduleSound(sound, time) {
     this.soundQueue.enqueue({ sound, time }, time);
     this.events.trigger("scheduled", sound, time);
@@ -552,7 +585,7 @@ class Timeline {
     this.scheduleSound(sound, newTime);
   }
   playNow(sound) {
-    this.soundQueue.enqueue({ sound, time: this.currentTime }, this.currentTime);
+    this.scheduleSound(sound, this.currentTime);
   }
   async addSound(file, startTime, options = {}) {
     const sound = new Sound_default({ file, ...options });
@@ -568,9 +601,6 @@ class Timeline {
   future(seconds) {
     return this.currentTime + seconds;
   }
-  runEverySecond() {
-    console.info("Every second");
-  }
   get context() {
     return timelineProperties.get(this).context;
   }
@@ -579,11 +609,8 @@ class Timeline {
     properties.context = value;
   }
   get currentTime() {
-    return timelineProperties.get(this).currentTime;
-  }
-  set currentTime(value) {
     const properties = timelineProperties.get(this);
-    properties.currentTime = value;
+    return properties.context ? properties.context.currentTime : 0;
   }
   get isPlaying() {
     return timelineProperties.get(this).isPlaying;
@@ -608,6 +635,31 @@ class Timeline {
   set events(value) {
     const properties = timelineProperties.get(this);
     properties.events = value;
+  }
+  get lookahead() {
+    return timelineProperties.get(this).lookahead;
+  }
+  set lookahead(value) {
+    const properties = timelineProperties.get(this);
+    properties.lookahead = value;
+  }
+  get tickInterval() {
+    return timelineProperties.get(this).tickInterval;
+  }
+  set tickInterval(value) {
+    const properties = timelineProperties.get(this);
+    properties.tickInterval = value;
+    if (properties.schedulerID !== null) {
+      this.stopScheduler();
+      properties.schedulerID = setInterval(() => this.tick(), value * 1000);
+    }
+  }
+  get maxLateness() {
+    return timelineProperties.get(this).maxLateness;
+  }
+  set maxLateness(value) {
+    const properties = timelineProperties.get(this);
+    properties.maxLateness = value;
   }
 }
 var Timeline_default = Timeline;

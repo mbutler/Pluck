@@ -90,7 +90,7 @@ describe('trigger', () => {
   })
 
   test('supports the documented event names', () => {
-    const names = ['start', 'stop', 'loop', 'scheduled', 'play', 'effect']
+    const names = ['start', 'stop', 'loop', 'scheduled', 'missed', 'play', 'effect']
     const fired = []
 
     for (const name of names) events.on(name, () => fired.push(name))

@@ -146,7 +146,15 @@ class Sound {
     }
   }
 
-  async play(fromGroup = false) {
+  /**
+   * @param {boolean} fromGroup  set by Group; grouped sounds refuse direct play
+   * @param {number} when        absolute context time to start at. Anything at
+   *                             or before now starts immediately, which is the
+   *                             default. Scheduling ahead is what lets the
+   *                             Timeline place sounds on the audio clock
+   *                             instead of on a frame boundary.
+   */
+  async play(fromGroup = false, when = 0) {
     if (this.isGrouped && !fromGroup) {
       console.warn(`Cannot play the sound ${this.fileName} directly. It is in a group.`)
       return
@@ -176,10 +184,11 @@ class Sound {
     this.createSource()
 
     if (this.source && this.source.start) {
+      const startTime = when > this.context.currentTime ? when : this.context.currentTime
       this.isPlaying = true
-      this.applyAttack()
+      this.applyAttack(startTime)
       this.events.trigger('play')
-      this.source.start(this.context.currentTime, this.offset)
+      this.source.start(startTime, this.offset)
       soundProperties.get(this).sourceStarted = true
     } else {
       console.error('No source to play')
@@ -229,21 +238,24 @@ class Sound {
     return new Sound(options)
   }
 
-  applyAttack() {
+  // startTime defaults to now. When a sound is scheduled ahead the envelope has
+  // to be scheduled at the same moment, or the gain finishes ramping up long
+  // before the source starts and the attack is never heard.
+  applyAttack(startTime = this.context.currentTime) {
     if (!this.gainNode) return
-    const currentTime = this.context.currentTime
-    this.gainNode.gain.setValueAtTime(0, currentTime)
-    this.gainNode.gain.linearRampToValueAtTime(this.volume, currentTime + this.attack)
+    this.gainNode.gain.setValueAtTime(0, startTime)
+    this.gainNode.gain.linearRampToValueAtTime(this.volume, startTime + this.attack)
   }
 
-  applyRelease(callback) {
+  applyRelease(callback, startTime = this.context.currentTime) {
     if (!this.gainNode) return
-    const currentTime = this.context.currentTime
-    this.gainNode.gain.setValueAtTime(this.volume, currentTime)
-    this.gainNode.gain.linearRampToValueAtTime(0, currentTime + this.release)
-    // Schedule the callback after the release time
+    this.gainNode.gain.setValueAtTime(this.volume, startTime)
+    this.gainNode.gain.linearRampToValueAtTime(0, startTime + this.release)
+    // Schedule the callback for when the ramp finishes, allowing for a release
+    // that has not started yet.
     if (typeof callback === 'function') {
-      setTimeout(callback, this.release * 1000)
+      const delay = (startTime - this.context.currentTime + this.release) * 1000
+      setTimeout(callback, Math.max(0, delay))
     }
   }
 
